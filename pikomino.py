@@ -241,18 +241,18 @@ class PikominoGame:
         if not has_worm:
             return None
         
-        # Chercher d'abord dans le centre
-        available_tiles = [t for t in self.tiles_center if t.value <= score]
-        if available_tiles:
-            # Prendre la tuile de plus haute valeur possible
-            return max(available_tiles, key=lambda t: t.value)
-        
-        # Chercher chez les autres joueurs (score exact seulement)
+        # D'abord vérifier si on peut voler chez un autre joueur (score exact)
         for player in self.players:
             if player != self.get_current_player():
                 top_tile = player.get_top_tile()
                 if top_tile and top_tile.value == score:
                     return top_tile
+        
+        # Sinon chercher dans le centre (score >= valeur tuile)
+        available_tiles = [t for t in self.tiles_center if t.value <= score]
+        if available_tiles:
+            # Prendre la tuile de plus haute valeur possible
+            return max(available_tiles, key=lambda t: t.value)
         
         return None
     
@@ -260,17 +260,20 @@ class PikominoGame:
         """Prend une tuile et l'attribue au joueur actuel"""
         current_player = self.get_current_player()
         
-        # Vérifier si la tuile est dans le centre
-        if tile in self.tiles_center:
-            self.tiles_center.remove(tile)
-            current_player.add_tile(tile)
-            return True
-        
-        # Vérifier si la tuile est chez un autre joueur
+        # D'abord vérifier si la tuile est chez un autre joueur (comparaison par référence)
         for player in self.players:
-            if player != current_player and player.get_top_tile() == tile:
-                player.remove_top_tile()
-                current_player.add_tile(tile)
+            if player != current_player:
+                top_tile = player.get_top_tile()
+                if top_tile is tile:
+                    removed_tile = player.remove_top_tile()
+                    current_player.add_tile(removed_tile)
+                    return True
+        
+        # Sinon vérifier si la tuile est dans le centre (comparaison par référence aussi)
+        for i, center_tile in enumerate(self.tiles_center):
+            if center_tile is tile:
+                self.tiles_center.remove(center_tile)
+                current_player.add_tile(center_tile)
                 return True
         
         return False

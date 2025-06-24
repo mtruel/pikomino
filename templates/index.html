@@ -27,15 +27,15 @@
                     
                     <div class="mb-3">
                         <label class="form-label">Adversaires IA :</label>
-                        <div class="row">
-                            <div class="col-md-6">
-                                <input type="text" class="form-control mb-2" id="player2" value="Alice (Conservatrice)" readonly>
-                            </div>
-                            <div class="col-md-6">
-                                <input type="text" class="form-control mb-2" id="player3" value="Bob (Agressif)" readonly>
-                            </div>
+                        <div id="aiPlayers">
+                            <!-- Les adversaires IA seront ajoutés ici dynamiquement -->
                         </div>
-                        <small class="text-muted">Les adversaires IA utilisent différentes stratégies automatiquement.</small>
+                        <div class="mt-2">
+                            <button type="button" class="btn btn-outline-success btn-sm" id="addAI">
+                                <i class="fas fa-plus me-1"></i>Ajouter un adversaire
+                            </button>
+                            <small class="text-muted ms-2">(2-4 adversaires)</small>
+                        </div>
                     </div>
 
                     <div class="mb-3">
@@ -109,6 +109,117 @@
 
 {% block extra_js %}
 <script>
+// Noms de base pour les IA
+const aiBaseNames = ['Bob', 'Alice', 'Charlie', 'Diana', 'Eve', 'Frank'];
+
+const aiPlayerTemplate = (index) => {
+    const baseName = aiBaseNames[index - 1] || `IA${index}`;
+    const defaultStrategy = index % 2 === 1 ? 'conservative' : 'aggressive';
+    const strategyName = defaultStrategy === 'conservative' ? 'Conservative' : 'Aggressive';
+    const defaultName = `${baseName} ${strategyName}`;
+    
+    return `
+    <div class="row ai-player mb-2" data-index="${index}">
+        <div class="col-md-5">
+            <input type="text" class="form-control" placeholder="Nom de l'IA ${index}" 
+                   value="${defaultName}" required name="aiName${index}">
+        </div>
+        <div class="col-md-5">
+            <select class="form-select" required name="aiStrategy${index}" onchange="updateAIName(${index})">
+                <option value="conservative" ${defaultStrategy === 'conservative' ? 'selected' : ''}>Conservative</option>
+                <option value="aggressive" ${defaultStrategy === 'aggressive' ? 'selected' : ''}>Aggressive</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <button type="button" class="btn btn-outline-danger btn-sm remove-ai">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    </div>
+`;
+};
+
+let aiCount = 0;
+
+function updateAIName(index) {
+    const playerRow = document.querySelector(`.ai-player[data-index="${index}"]`);
+    if (!playerRow) return;
+    
+    const nameInput = playerRow.querySelector(`input[name="aiName${index}"]`);
+    const strategySelect = playerRow.querySelector(`select[name="aiStrategy${index}"]`);
+    
+    if (!nameInput || !strategySelect) return;
+    
+    const currentName = nameInput.value;
+    const newStrategy = strategySelect.value;
+    const strategyName = newStrategy === 'conservative' ? 'Conservative' : 'Aggressive';
+    
+    // Extraire le nom de base (enlever l'ancienne stratégie)
+    const baseName = aiBaseNames[index - 1] || `IA${index}`;
+    const baseNameRegex = new RegExp(`^${baseName}( (Conservative|Aggressive))?$`);
+    
+    if (baseNameRegex.test(currentName)) {
+        // Si le nom suit le pattern attendu, le mettre à jour
+        nameInput.value = `${baseName} ${strategyName}`;
+    }
+    // Sinon, laisser le nom personnalisé tel quel
+}
+
+function addAIPlayer() {
+    if (aiCount < 4) {
+        aiCount++;
+        const aiContainer = document.getElementById('aiPlayers');
+        aiContainer.insertAdjacentHTML('beforeend', aiPlayerTemplate(aiCount));
+        updateAIControls();
+    }
+}
+
+function removeAIPlayer(element) {
+    element.closest('.ai-player').remove();
+    aiCount--;
+    updateAIControls();
+    // Renuméroter les joueurs restants
+    document.querySelectorAll('.ai-player').forEach((player, idx) => {
+        const newIndex = idx + 1;
+        player.dataset.index = newIndex;
+        
+        const nameInput = player.querySelector('input[type="text"]');
+        const strategySelect = player.querySelector('select');
+        
+        nameInput.placeholder = `Nom de l'IA ${newIndex}`;
+        nameInput.name = `aiName${newIndex}`;
+        strategySelect.name = `aiStrategy${newIndex}`;
+        
+        // Mettre à jour l'attribut onchange du select
+        strategySelect.setAttribute('onchange', `updateAIName(${newIndex})`);
+        
+        // Mettre à jour le nom avec le nouveau nom de base
+        const baseName = aiBaseNames[newIndex - 1] || `IA${newIndex}`;
+        const currentStrategy = strategySelect.value;
+        const strategyName = currentStrategy === 'conservative' ? 'Conservative' : 'Aggressive';
+        nameInput.value = `${baseName} ${strategyName}`;
+    });
+}
+
+function updateAIControls() {
+    const addButton = document.getElementById('addAI');
+    addButton.disabled = aiCount >= 4;
+}
+
+// Initialiser avec 2 adversaires par défaut
+document.addEventListener('DOMContentLoaded', function() {
+    addAIPlayer();
+    addAIPlayer();
+    
+    document.getElementById('addAI').addEventListener('click', addAIPlayer);
+    
+    document.getElementById('aiPlayers').addEventListener('click', function(e) {
+        if (e.target.closest('.remove-ai') && aiCount > 2) {
+            removeAIPlayer(e.target);
+        }
+    });
+});
+
 document.getElementById('newGameForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     
@@ -118,9 +229,20 @@ document.getElementById('newGameForm').addEventListener('submit', async function
     const playerName = document.getElementById('playerName').value;
     const gameMode = document.querySelector('input[name="gameMode"]:checked').value;
     
+    // Récupérer les informations des adversaires IA
+    const aiPlayers = [];
+    document.querySelectorAll('.ai-player').forEach(player => {
+        const index = player.dataset.index;
+        const name = player.querySelector(`input[name="aiName${index}"]`).value;
+        const strategy = player.querySelector(`select[name="aiStrategy${index}"]`).value;
+        aiPlayers.push({ name, strategy });
+    });
+    
     const players = gameMode === 'interactive' 
-        ? [playerName, 'Alice', 'Bob']
-        : ['Alice', 'Bob', 'Charlie'];
+        ? [playerName, ...aiPlayers.map(p => p.name)]
+        : aiPlayers.map(p => p.name);
+    
+    const strategies = aiPlayers.map(p => p.strategy);
     
     try {
         const response = await fetch('/api/create_game', {
@@ -130,6 +252,7 @@ document.getElementById('newGameForm').addEventListener('submit', async function
             },
             body: JSON.stringify({
                 players: players,
+                strategies: strategies,
                 mode: gameMode
             })
         });

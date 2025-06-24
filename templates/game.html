@@ -14,6 +14,9 @@
                             <i class="fas fa-gamepad me-2"></i>Partie de Pikomino
                         </h4>
                         <small class="text-muted">ID: {{ game_id[:8] }}</small>
+                        {% if mode == 'simulation' %}
+                        <span class="badge bg-info ms-2">Mode Simulation</span>
+                        {% endif %}
                     </div>
                     <div class="col-md-6 text-md-end">
                         <span class="badge bg-info fs-6" id="gameStatus">En cours</span>
@@ -23,6 +26,45 @@
             </div>
         </div>
     </div>
+
+    <!-- Contrôles de simulation (uniquement en mode simulation) -->
+    {% if mode == 'simulation' %}
+    <div class="col-12 mb-3" id="simulationControls">
+        <div class="card border-primary">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-cog me-2"></i>Contrôles de simulation
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-4">
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-success" id="playStepBtn">
+                                <i class="fas fa-step-forward me-1"></i>Pas suivant
+                            </button>
+                            <button class="btn btn-warning" id="pauseBtn" style="display: none;">
+                                <i class="fas fa-pause me-1"></i>Pause
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="autoPlaySwitch">
+                            <label class="form-check-label" for="autoPlaySwitch">
+                                <strong>Lecture automatique</strong>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="speedRange" class="form-label">Vitesse: <span id="speedValue">1.0</span>s</label>
+                        <input type="range" class="form-range" id="speedRange" min="0.1" max="3.0" step="0.1" value="1.0">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 
     <!-- Zone de jeu principale -->
     <div class="col-lg-8">
@@ -38,7 +80,32 @@
             </div>
         </div>
 
-        <!-- Zone de jeu du joueur actuel -->
+        <!-- Actions IA en cours (mode simulation) -->
+        {% if mode == 'simulation' %}
+        <div class="card mb-3" id="aiActionArea">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-robot me-2"></i>Action IA en cours
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="currentAIAction">
+                    <p class="text-muted">En attente du prochain tour...</p>
+                </div>
+                
+                <!-- Détails du tour actuel -->
+                <div id="turnDetails" style="display: none;">
+                    <h6>Détails du tour :</h6>
+                    <div id="diceRollsDisplay" class="mb-2"></div>
+                    <div id="finalScoreDisplay" class="alert alert-info"></div>
+                    <div id="resultDisplay" class="alert"></div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Zone de jeu du joueur actuel (mode interactif) -->
+        {% if mode == 'interactive' %}
         <div class="card mb-3" id="currentPlayerArea">
             <div class="card-header bg-warning">
                 <h5 class="mb-0">
@@ -70,6 +137,15 @@
                     </div>
                 </div>
 
+                <!-- Message d'aide pour le vol de tuiles -->
+                <div id="stealHelpArea" style="display: none;">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Vous pouvez voler une tuile !</strong><br>
+                        <small>Cliquez sur une tuile marquée 🥷 dans la section "Joueurs" ou sur une tuile du centre avec ✨</small>
+                    </div>
+                </div>
+
                 <!-- Actions -->
                 <div id="actionButtons">
                     <button class="btn btn-primary" id="rollDiceBtn">
@@ -84,6 +160,7 @@
                 </div>
             </div>
         </div>
+        {% endif %}
 
         <!-- Historique des tours -->
         <div class="card">
@@ -157,26 +234,194 @@
 {% block extra_js %}
 <script>
 const gameId = '{{ game_id }}';
+const gameMode = '{{ mode }}';
 const socket = io();
 
 // État du jeu
 let gameState = {{ game_state | tojson }};
+let stepConfig = {{ step_config | tojson if step_config else '{}' }};
 let isHumanPlayer = false;
+
+// Variables globales pour suivre l'état du tour
+let currentTurnState = {
+    reservedDice: [],
+    currentScore: 0,
+    hasWorm: false,
+    remainingDice: 8,
+    usedValues: []
+};
 
 // Initialisation
 document.addEventListener('DOMContentLoaded', function() {
     socket.emit('join_game', { game_id: gameId });
     updateGameDisplay();
     
-    // Événements
-    document.getElementById('rollDiceBtn').addEventListener('click', rollDice);
-    document.getElementById('nextPlayerBtn').addEventListener('click', nextPlayer);
+    // Événements mode interactif
+    if (gameMode === 'interactive') {
+        const rollBtn = document.getElementById('rollDiceBtn');
+        const nextBtn = document.getElementById('nextPlayerBtn');
+        const endTurnBtn = document.getElementById('endTurnBtn');
+        
+        if (rollBtn) {
+            rollBtn.addEventListener('click', rollDice);
+        }
+        if (nextBtn) {
+            nextBtn.addEventListener('click', nextPlayer);
+        }
+        if (endTurnBtn) {
+            endTurnBtn.addEventListener('click', endTurn);
+        }
+    }
+    
+    // Événements mode simulation
+    if (gameMode === 'simulation') {
+        setupSimulationControls();
+    }
 });
+
+// Configuration des contrôles de simulation
+function setupSimulationControls() {
+    const playStepBtn = document.getElementById('playStepBtn');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const autoPlaySwitch = document.getElementById('autoPlaySwitch');
+    const speedRange = document.getElementById('speedRange');
+    const speedValue = document.getElementById('speedValue');
+    
+    if (playStepBtn) {
+        playStepBtn.addEventListener('click', () => {
+            fetch(`/api/game/${gameId}/step_control`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'play' })
+            });
+        });
+    }
+    
+    if (pauseBtn) {
+        pauseBtn.addEventListener('click', () => {
+            fetch(`/api/game/${gameId}/step_control`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'pause' })
+            });
+        });
+    }
+    
+    if (autoPlaySwitch) {
+        autoPlaySwitch.addEventListener('change', (e) => {
+            fetch(`/api/game/${gameId}/step_control`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    action: 'auto_play', 
+                    enabled: e.target.checked 
+                })
+            });
+        });
+    }
+    
+    if (speedRange) {
+        speedRange.addEventListener('input', (e) => {
+            const speed = parseFloat(e.target.value);
+            if (speedValue) speedValue.textContent = speed.toFixed(1);
+            fetch(`/api/game/${gameId}/step_control`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    action: 'set_speed', 
+                    speed: speed 
+                })
+            });
+        });
+    }
+}
 
 // Événements Socket.IO
 socket.on('game_state', function(data) {
     gameState = data;
+    stepConfig = data.step_config || {};
     updateGameDisplay();
+});
+
+function updateHumanTurnDisplay(data) {
+    if (!data.is_human || !data.details) return;
+    
+    const reservedArea = document.getElementById('reservedArea');
+    const reservedDice = document.getElementById('reservedDice');
+    const currentScore = document.getElementById('currentScore');
+    const wormStatus = document.getElementById('wormStatus');
+    
+    if (!reservedArea || !reservedDice) return;
+    
+    // Afficher les dés réservés
+    if (data.details.reserved_dice) {
+        reservedDice.innerHTML = data.details.reserved_dice
+            .map(die => `<div class="die">${getDiceDisplay(die)}</div>`)
+            .join('');
+    }
+    
+    // Mettre à jour le score
+    if (currentScore) {
+        currentScore.textContent = data.details.final_score || 0;
+    }
+    
+    // Mettre à jour le statut des vers
+    if (wormStatus) {
+        wormStatus.textContent = data.details.final_has_worm ? '✅' : '❌';
+        wormStatus.className = data.details.final_has_worm ? 'text-success' : 'text-danger';
+    }
+    
+    // Afficher le bouton pour terminer le tour
+    const endTurnBtn = document.getElementById('endTurnBtn');
+    if (endTurnBtn) {
+        endTurnBtn.style.display = 'inline-block';
+    }
+}
+
+socket.on('turn_played', function(data) {
+    // Afficher les détails du tour joué
+    addTurnToHistory(data.details, data.player);
+    
+    // Mettre à jour l'état du jeu
+    gameState = data.game_state;
+    
+    // Nettoyer l'interface à chaque fin de tour
+    if (typeof onTurnCompleted === 'function') {
+        onTurnCompleted();
+    }
+    
+    // Si c'est de nouveau le tour du joueur humain, réinitialiser l'interface
+    if (gameMode === 'interactive' && !gameState.game_over) {
+        const currentPlayer = gameState.current_player;
+        const isCurrentPlayerHuman = Object.keys(gameState.player_scores).indexOf(currentPlayer) === 0;
+        
+        if (isCurrentPlayerHuman) {
+            // Réinitialiser l'état côté client pour le nouveau tour
+            setTimeout(() => {
+                if (typeof resetDiceDisplay === 'function') {
+                    resetDiceDisplay();
+                }
+                resetTurnState();
+                updateCurrentPlayer();
+            }, 500);
+        }
+    }
+    
+    // Mettre à jour l'affichage pour le joueur humain
+    updateHumanTurnDisplay(data);
+    
+    // Mettre à jour l'affichage général
+    updateGameDisplay();
+    
+    // Afficher l'action IA en cours
+    if (gameMode === 'simulation') {
+        displayAIAction(data);
+    }
+});
+
+socket.on('step_config_updated', function(data) {
+    stepConfig = data;
+    updateSimulationControls();
 });
 
 socket.on('dice_rolled', function(data) {
@@ -187,73 +432,370 @@ socket.on('error', function(data) {
     alert('Erreur: ' + data.message);
 });
 
+socket.on('choice_made', function(data) {
+    if (!data.success) return;
+    
+    const details = data.details;
+    
+    // Mettre à jour l'état du tour
+    currentTurnState.currentScore = details.current_score;
+    currentTurnState.hasWorm = details.has_worm;
+    currentTurnState.remainingDice = details.remaining_dice_count;
+    currentTurnState.usedValues = details.used_values || [];
+    
+    // Appliquer la logique après choix via la fonction externe
+    if (typeof handleChoiceMade === 'function') {
+        handleChoiceMade(data);
+    }
+    
+    // Si le joueur peut prendre une tuile, afficher le message d'aide
+    if (details.can_take_tile && details.has_worm) {
+        showStealHelp();
+    }
+    
+    // Mettre à jour l'affichage
+    const reservedArea = document.getElementById('reservedArea');
+    const reservedDice = document.getElementById('reservedDice');
+    const currentScore = document.getElementById('currentScore');
+    const wormStatus = document.getElementById('wormStatus');
+    const rollDiceBtn = document.getElementById('rollDiceBtn');
+    const diceArea = document.getElementById('diceArea');
+    const diceChoices = document.getElementById('diceChoices');
+    
+    // Afficher les dés réservés
+    if (reservedDice) {
+        reservedDice.innerHTML = details.reserved_dice
+            .map(die => `<div class="die">${getDiceDisplay(die)}</div>`)
+            .join('');
+    }
+    
+    // Mettre à jour le score
+    if (currentScore) {
+        currentScore.textContent = details.current_score;
+    }
+    
+    // Mettre à jour le statut des vers
+    if (wormStatus) {
+        wormStatus.textContent = details.has_worm ? '✅' : '❌';
+        wormStatus.className = details.has_worm ? 'text-success' : 'text-danger';
+    }
+    
+    // Gérer les boutons et zones
+    if (rollDiceBtn) {
+        rollDiceBtn.style.display = details.remaining_dice_count > 0 ? 'inline-block' : 'none';
+    }
+    if (diceArea) {
+        diceArea.style.display = 'none';
+    }
+    if (diceChoices) {
+        diceChoices.innerHTML = '';
+    }
+    
+    // Mettre à jour l'affichage des tuiles pour les rendre cliquables si possible
+    updateCenterTiles();
+    
+    // Afficher le bouton de fin de tour si on peut prendre une tuile
+    const endTurnBtn = document.getElementById('endTurnBtn');
+    if (endTurnBtn && details.can_take_tile) {
+        endTurnBtn.style.display = 'inline-block';
+        endTurnBtn.classList.add('pulse'); // Animation pour attirer l'attention
+    }
+});
+
 // Fonctions principales
 function updateGameDisplay() {
     updatePlayersPanel();
     updateCenterTiles();
-    updateCurrentPlayer();
+    if (gameMode === 'interactive') {
+        updateCurrentPlayer();
+    }
     updateGameStatus();
+    if (gameMode === 'simulation') {
+        updateSimulationControls();
+    }
+}
+
+function updateSimulationControls() {
+    if (gameMode !== 'simulation') return;
+    
+    const playStepBtn = document.getElementById('playStepBtn');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const autoPlaySwitch = document.getElementById('autoPlaySwitch');
+    const speedRange = document.getElementById('speedRange');
+    const speedValue = document.getElementById('speedValue');
+    
+    if (playStepBtn && pauseBtn) {
+        if (stepConfig.auto_play) {
+            playStepBtn.style.display = 'none';
+            pauseBtn.style.display = 'inline-block';
+        } else {
+            playStepBtn.style.display = 'inline-block';
+            pauseBtn.style.display = 'none';
+        }
+    }
+    
+    if (autoPlaySwitch) autoPlaySwitch.checked = stepConfig.auto_play || false;
+    if (speedRange) speedRange.value = stepConfig.speed || 1.0;
+    if (speedValue) speedValue.textContent = (stepConfig.speed || 1.0).toFixed(1);
+}
+
+function displayAIAction(turnData) {
+    const aiActionArea = document.getElementById('currentAIAction');
+    const turnDetails = document.getElementById('turnDetails');
+    const diceRollsDisplay = document.getElementById('diceRollsDisplay');
+    const finalScoreDisplay = document.getElementById('finalScoreDisplay');
+    const resultDisplay = document.getElementById('resultDisplay');
+    
+    if (!aiActionArea) return;
+    
+    // Afficher le joueur actuel
+    aiActionArea.innerHTML = `
+        <div class="d-flex align-items-center mb-3">
+            <i class="fas fa-robot fa-2x text-primary me-3"></i>
+            <div>
+                <h6 class="mb-0">${turnData.player || 'IA'}</h6>
+                <small class="text-muted">Stratégie: ${getStrategyName(turnData.player)}</small>
+            </div>
+        </div>
+    `;
+    
+    // Afficher les détails du tour
+    if (turnData.details && turnDetails) {
+        turnDetails.style.display = 'block';
+        
+        // Afficher les lancers de dés
+        if (diceRollsDisplay) {
+            diceRollsDisplay.innerHTML = '';
+            if (turnData.details.rolls) {
+                turnData.details.rolls.forEach((roll, index) => {
+                    const rollDiv = document.createElement('div');
+                    rollDiv.className = 'border rounded p-2 mb-2';
+                    rollDiv.innerHTML = `
+                        <strong>Lancer ${index + 1}:</strong>
+                        <div class="d-flex gap-1 my-1">
+                            ${roll.dice.map(die => getDiceDisplay(die)).join('')}
+                        </div>
+                        ${roll.chosen_value ? `<small class="text-success">Choisi: ${getDiceDisplay(roll.chosen_value)} x${roll.chosen_count}</small>` : ''}
+                    `;
+                    diceRollsDisplay.appendChild(rollDiv);
+                });
+            }
+        }
+        
+        // Afficher le score final
+        if (finalScoreDisplay) {
+            finalScoreDisplay.innerHTML = `
+                <strong>Score final:</strong> ${turnData.details.final_score} points
+                | <strong>Vers:</strong> ${turnData.details.final_has_worm ? '✅' : '❌'}
+            `;
+        }
+        
+        // Afficher le résultat
+        if (resultDisplay) {
+            const result = turnData.details.result || turnData.result;
+            const resultClass = result === 'success' ? 'alert-success' : 'alert-danger';
+            const resultIcon = result === 'success' ? '✅' : '❌';
+            
+            let resultText = '';
+            switch (result) {
+                case 'success':
+                    resultText = `Tuile prise: ${turnData.details.tile_taken?.value} (${turnData.details.tile_taken?.worms} vers)`;
+                    break;
+                case 'failed_no_worm':
+                    resultText = 'Échec: Aucun ver obtenu';
+                    break;
+                case 'failed_insufficient_score':
+                    resultText = 'Échec: Score insuffisant';
+                    break;
+                case 'failed_no_valid_choice':
+                    resultText = 'Échec: Aucun choix valide';
+                    break;
+                default:
+                    resultText = 'Résultat inconnu';
+            }
+            
+            resultDisplay.className = `alert ${resultClass}`;
+            resultDisplay.innerHTML = `${resultIcon} ${resultText}`;
+        }
+    }
+}
+
+function getStrategyName(playerName) {
+    // Déterminer la stratégie basée sur l'index du joueur
+    const playerIndex = Object.keys(gameState.player_scores).indexOf(playerName);
+    return playerIndex % 2 === 0 ? 'Conservative' : 'Agressive';
+}
+
+function createPlayerTileDisplay(tiles, playerName) {
+    if (!tiles || tiles.length === 0) {
+        return '<div class="text-muted small">Aucune tuile</div>';
+    }
+    
+    return tiles.map((tile, index) => {
+        // Vérifier si c'est la tuile du dessus (la dernière dans la liste) et si elle peut être volée
+        const isTopTile = index === tiles.length - 1;
+        const canSteal = isTopTile && 
+                        currentTurnState.hasWorm && 
+                        currentTurnState.currentScore === tile.value &&
+                        isHumanPlayer && 
+                        gameMode === 'interactive' &&
+                        playerName !== gameState.current_player; // Pas sa propre tuile
+        
+        let cardClass = 'card text-center';
+        let extraStyle = 'width: 50px; font-size: 0.8em;';
+        let stealIndicator = '';
+        
+        if (canSteal) {
+            cardClass += ' stealable-tile cursor-pointer';
+            stealIndicator = '<div style="position: absolute; top: -5px; right: -5px; font-size: 0.6em;">🥷</div>';
+        }
+        
+        const tileElement = `
+            <div class="player-tile d-inline-block me-1 mb-1" data-player="${playerName}" data-tile-value="${tile.value}" data-can-steal="${canSteal}">
+                <div class="${cardClass}" style="${extraStyle} position: relative;" 
+                     title="${canSteal ? `Cliquez pour voler cette tuile de ${playerName} (${tile.worms} vers)` : `Tuile ${tile.value} (${tile.worms} vers)`}">
+                    <div class="card-body p-1">
+                        <div class="fw-bold" style="font-size: 0.9em;">${tile.value}</div>
+                        <div style="font-size: 0.6em;">${'🐛'.repeat(tile.worms)}</div>
+                    </div>
+                    ${stealIndicator}
+                </div>
+            </div>
+        `;
+        
+        return tileElement;
+    }).join('');
 }
 
 function updatePlayersPanel() {
     const panel = document.getElementById('playersPanel');
+    if (!panel) return;
+    
     panel.innerHTML = '';
     
     Object.entries(gameState.player_scores).forEach(([name, score]) => {
         const isCurrentPlayer = name === gameState.current_player;
         const tileCount = gameState.player_tile_counts[name];
+        const playerTiles = gameState.player_tiles ? gameState.player_tiles[name] : [];
         
         const playerDiv = document.createElement('div');
         playerDiv.className = `card mb-2 ${isCurrentPlayer ? 'border-warning' : ''}`;
+        
+        const tilesDisplay = createPlayerTileDisplay(playerTiles, name);
+        
         playerDiv.innerHTML = `
             <div class="card-body py-2">
-                <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex justify-content-between align-items-center mb-2">
                     <strong class="${isCurrentPlayer ? 'text-warning' : ''}">${name}</strong>
                     <div>
                         <span class="badge bg-success">${score} 🐛</span>
                         <span class="badge bg-secondary">${tileCount} tuiles</span>
                     </div>
                 </div>
+                <div class="player-tiles-container">
+                    <div class="small text-muted mb-1">Tuiles possédées :</div>
+                    <div class="d-flex flex-wrap">
+                        ${tilesDisplay}
+                    </div>
+                </div>
             </div>
         `;
+        
         panel.appendChild(playerDiv);
+        
+                 // Ajouter les event listeners pour les tuiles volables
+        const stealableTiles = playerDiv.querySelectorAll('[data-can-steal="true"]');
+        stealableTiles.forEach(tileElement => {
+            tileElement.addEventListener('click', function() {
+                const playerName = this.dataset.player;
+                const tileValue = parseInt(this.dataset.tileValue);
+                handleTileSteal(playerName, tileValue);
+            });
+        });
     });
 }
 
 function updateCenterTiles() {
     const container = document.getElementById('centerTiles');
+    if (!container) return;
+    
     container.innerHTML = '';
     
     gameState.tiles_center.forEach(tile => {
         const tileDiv = document.createElement('div');
         tileDiv.className = 'tile';
+        
+        // Vérifier si la tuile peut être prise
+        const canTakeTile = currentTurnState.hasWorm && 
+                           currentTurnState.currentScore >= tile.value &&
+                           isHumanPlayer && 
+                           gameMode === 'interactive';
+        
+        // Appliquer les classes CSS appropriées
+        let cardClass = 'card text-center';
+        let additionalClass = '';
+        
+        if (canTakeTile) {
+            cardClass += ' cursor-pointer';
+            additionalClass = 'tile-available';
+        } else {
+            additionalClass = 'tile-unavailable';
+        }
+        
         tileDiv.innerHTML = `
-            <div class="card text-center" style="width: 80px;">
+            <div class="${cardClass} ${additionalClass}" style="width: 80px; position: relative;">
                 <div class="card-body p-2">
                     <div class="fw-bold">${tile.value}</div>
                     <div style="font-size: 0.8em;">${'🐛'.repeat(tile.worms)}</div>
+                    ${canTakeTile ? '<div style="position: absolute; top: -5px; right: -5px; font-size: 0.7em;">✨</div>' : ''}
                 </div>
             </div>
         `;
+        
+        // Ajouter l'événement de clic si la tuile peut être prise
+        if (canTakeTile) {
+            const cardElement = tileDiv.querySelector('.card');
+            cardElement.addEventListener('click', () => {
+                handleCenterTileClick(tile.value);
+            });
+            
+            // Ajouter un titre informatif
+            cardElement.title = `Cliquez pour prendre cette tuile (${tile.value} points, ${tile.worms} vers)`;
+        } else {
+            // Ajouter un titre informatif pour les tuiles non disponibles
+            const cardElement = tileDiv.querySelector('.card');
+            if (!currentTurnState.hasWorm) {
+                cardElement.title = `Vous devez avoir au moins un ver pour prendre cette tuile`;
+            } else if (currentTurnState.currentScore < tile.value) {
+                cardElement.title = `Score requis: ${tile.value} (votre score: ${currentTurnState.currentScore})`;
+            } else {
+                cardElement.title = `Tuile valeur ${tile.value} (${tile.worms} vers)`;
+            }
+        }
+        
         container.appendChild(tileDiv);
     });
 }
 
 function updateCurrentPlayer() {
     const nameElement = document.getElementById('currentPlayerName');
-    nameElement.textContent = gameState.current_player;
+    if (nameElement) nameElement.textContent = gameState.current_player;
     
     // Vérifier si c'est le tour du joueur humain
     isHumanPlayer = gameState.current_player_idx === 0; // Premier joueur = humain
     
     const area = document.getElementById('currentPlayerArea');
-    if (isHumanPlayer) {
-        area.style.display = 'block';
-        document.getElementById('rollDiceBtn').style.display = 'inline-block';
-    } else {
-        area.style.display = 'none';
-        // Auto-play pour l'IA
-        setTimeout(playAITurn, 1000);
+    const rollBtn = document.getElementById('rollDiceBtn');
+    
+    if (area && rollBtn) {
+        if (isHumanPlayer) {
+            area.style.display = 'block';
+            rollBtn.style.display = 'inline-block';
+        } else {
+            area.style.display = 'none';
+            // Auto-play pour l'IA
+            setTimeout(playAITurn, 1000);
+        }
     }
 }
 
@@ -261,16 +803,20 @@ function updateGameStatus() {
     const statusElement = document.getElementById('gameStatus');
     const turnElement = document.getElementById('turnInfo');
     
-    if (gameState.game_over) {
-        statusElement.textContent = 'Terminée';
-        statusElement.className = 'badge bg-danger fs-6';
-        showGameOverModal();
-    } else {
-        statusElement.textContent = 'En cours';
-        statusElement.className = 'badge bg-success fs-6';
+    if (statusElement) {
+        if (gameState.game_over) {
+            statusElement.textContent = 'Terminée';
+            statusElement.className = 'badge bg-danger fs-6';
+            showGameOverModal();
+        } else {
+            statusElement.textContent = 'En cours';
+            statusElement.className = 'badge bg-success fs-6';
+        }
     }
     
-    turnElement.textContent = `Tour: ${gameState.turn_count + 1}`;
+    if (turnElement) {
+        turnElement.textContent = `Tour: ${gameState.turn_count + 1}`;
+    }
 }
 
 function rollDice() {
@@ -278,18 +824,31 @@ function rollDice() {
     
     socket.emit('roll_dice', {
         game_id: gameId,
-        remaining_dice: 8 // Sera ajusté selon l'état du tour
+        remaining_dice: currentTurnState.remainingDice,
+        current_score: currentTurnState.currentScore,
+        has_worm: currentTurnState.hasWorm
     });
     
-    document.getElementById('rollDiceBtn').style.display = 'none';
+    const rollBtn = document.getElementById('rollDiceBtn');
+    if (rollBtn) rollBtn.style.display = 'none';
 }
 
 function displayDiceRoll(data) {
     const diceArea = document.getElementById('diceArea');
     const diceRoll = document.getElementById('diceRoll');
     const choices = document.getElementById('diceChoices');
+    const reservedArea = document.getElementById('reservedArea');
+    const reservedDice = document.getElementById('reservedDice');
+    const currentScore = document.getElementById('currentScore');
+    const wormStatus = document.getElementById('wormStatus');
+    const endTurnBtn = document.getElementById('endTurnBtn');
+    const rollDiceBtn = document.getElementById('rollDiceBtn');
     
+    if (!diceArea || !diceRoll || !choices) return;
+    
+    // Afficher les zones
     diceArea.style.display = 'block';
+    if (reservedArea) reservedArea.style.display = 'block';
     
     // Afficher les dés
     diceRoll.innerHTML = '';
@@ -300,17 +859,63 @@ function displayDiceRoll(data) {
         diceRoll.appendChild(dieDiv);
     });
     
-    // Afficher les choix possibles
+    // Afficher les choix possibles (uniquement les valeurs non utilisées)
     choices.innerHTML = '';
     const uniqueValues = [...new Set(data.dice)];
+    const usedValues = new Set(data.used_values || []);
+    let hasValidChoices = false;
+    
     uniqueValues.forEach(value => {
-        const count = data.dice.filter(d => d === value).length;
-        const button = document.createElement('button');
-        button.className = 'btn btn-outline-primary';
-        button.innerHTML = `${getDiceDisplay(value)} x${count}`;
-        button.onclick = () => chooseDiceValue(value);
-        choices.appendChild(button);
+        if (!usedValues.has(value)) {
+            hasValidChoices = true;
+            const count = data.dice.filter(d => d === value).length;
+            const button = document.createElement('button');
+            button.className = 'btn btn-outline-primary me-2';
+            button.innerHTML = `${getDiceDisplay(value)} x${count}`;
+            button.onclick = () => chooseDiceValue(value);
+            choices.appendChild(button);
+        }
     });
+    
+    // Si aucun choix valide, afficher un message et bouton de fin forcée
+    if (!hasValidChoices) {
+        const noChoiceDiv = document.createElement('div');
+        noChoiceDiv.className = 'alert alert-warning';
+        noChoiceDiv.innerHTML = '⚠️ Aucune valeur disponible - fin de tour forcée';
+        choices.appendChild(noChoiceDiv);
+        
+        // Forcer l'affichage du bouton de fin de tour
+        if (endTurnBtn) {
+            endTurnBtn.style.display = 'inline-block';
+            endTurnBtn.textContent = 'Terminer le tour (obligatoire)';
+            endTurnBtn.className = 'btn btn-warning btn-lg pulse';
+        }
+        
+        // Masquer le bouton de lancer
+        if (rollDiceBtn) {
+            rollDiceBtn.style.display = 'none';
+        }
+    }
+    
+    // Mettre à jour l'affichage du score et des vers
+    if (currentScore) {
+        currentScore.textContent = data.current_score || 0;
+    }
+    if (wormStatus) {
+        wormStatus.textContent = data.has_worm ? '✅' : '❌';
+        wormStatus.className = data.has_worm ? 'text-success' : 'text-danger';
+    }
+    
+    // Appliquer la logique stricte de jeu via la fonction externe
+    if (typeof handleDiceRollLogic === 'function') {
+        handleDiceRollLogic(data);
+    }
+    
+    // Gérer les tuiles disponibles
+    if (endTurnBtn && data.has_worm && data.current_score >= 21) {
+        endTurnBtn.style.display = 'none';
+        showStealHelp();
+    }
 }
 
 function getDiceDisplay(diceValue) {
@@ -343,7 +948,7 @@ function playAITurn() {
         if (data.game_state) {
             gameState = data.game_state;
             updateGameDisplay();
-            addTurnToHistory(data.details);
+            // N'ajoute PAS à l'historique ici car l'événement 'turn_played' s'en occupe
         }
     })
     .catch(error => {
@@ -360,15 +965,23 @@ function nextPlayer() {
     });
 }
 
-function addTurnToHistory(details) {
+function addTurnToHistory(details, player) {
     const history = document.getElementById('turnHistory');
+    if (!history || !details) return;
+    
     const turnDiv = document.createElement('div');
     turnDiv.className = 'border-bottom pb-2 mb-2';
     
     let resultText = '';
-    switch(details.result.value || details.result) {
+    const result = details.result ? details.result.value || details.result : '';
+    
+    switch(result) {
         case 'success':
-            resultText = `✅ Tuile ${details.tile_taken.value} prise (${details.tile_taken.worms} vers)`;
+            if (details.tile_taken?.stolen_from) {
+                resultText = `🥷 Tuile ${details.tile_taken?.value} volée à ${details.tile_taken?.stolen_from} (${details.tile_taken?.worms} vers)`;
+            } else {
+                resultText = `✅ Tuile ${details.tile_taken?.value} prise (${details.tile_taken?.worms} vers)`;
+            }
             break;
         case 'failed_no_worm':
             resultText = '❌ Échec - Aucun ver';
@@ -379,11 +992,13 @@ function addTurnToHistory(details) {
         case 'failed_no_valid_choice':
             resultText = '❌ Échec - Aucun choix valide';
             break;
+        default:
+            resultText = '❓ Résultat inconnu';
     }
     
     turnDiv.innerHTML = `
         <div class="small">
-            <strong>${details.player}</strong> - Score: ${details.final_score} pts ${resultText}
+            <strong>${player || details.player || 'Joueur'}</strong> - Score: ${details.final_score || 0} pts ${resultText}
         </div>
     `;
     
@@ -394,31 +1009,221 @@ function showGameOverModal() {
     const modal = new bootstrap.Modal(document.getElementById('gameOverModal'));
     const results = document.getElementById('gameResults');
     
+    if (!results) return;
+    
     // Trouver le gagnant
-    let winner = '';
-    let maxScore = -1;
-    Object.entries(gameState.player_scores).forEach(([name, score]) => {
-        if (score > maxScore) {
-            maxScore = score;
-            winner = name;
-        }
-    });
+    const winner = Object.entries(gameState.player_scores)
+        .reduce((a, b) => gameState.player_scores[a[0]] > gameState.player_scores[b[0]] ? a : b);
     
     results.innerHTML = `
-        <h4 class="text-center mb-3">🎉 ${winner} a gagné ! 🎉</h4>
-        <div class="row">
-            ${Object.entries(gameState.player_scores).map(([name, score]) => `
-                <div class="col-12 mb-2">
-                    <div class="d-flex justify-content-between">
-                        <span class="${name === winner ? 'fw-bold text-success' : ''}">${name}</span>
-                        <span class="${name === winner ? 'fw-bold text-success' : ''}">${score} vers</span>
-                    </div>
-                </div>
-            `).join('')}
-        </div>
+        <h4 class="text-success">🎉 ${winner[0]} remporte la partie !</h4>
+        <p>Score final: ${winner[1]} vers</p>
+        
+        <h6>Classement final:</h6>
+        <ul class="list-group">
+            ${Object.entries(gameState.player_scores)
+                .sort((a, b) => b[1] - a[1])
+                .map(([name, score], index) => {
+                    const position = ['🥇', '🥈', '🥉'][index] || `${index + 1}e`;
+                    return `<li class="list-group-item d-flex justify-content-between">
+                        ${position} ${name} 
+                        <span class="badge bg-success">${score} vers</span>
+                    </li>`;
+                }).join('')}
+        </ul>
     `;
     
     modal.show();
+}
+
+function resetTurnState() {
+    // Réinitialiser l'état du tour
+    currentTurnState = {
+        reservedDice: [],
+        currentScore: 0,
+        hasWorm: false,
+        remainingDice: 8,
+        usedValues: []
+    };
+    
+    // Réinitialiser l'interface
+    const diceArea = document.getElementById('diceArea');
+    const reservedArea = document.getElementById('reservedArea');
+    const reservedDice = document.getElementById('reservedDice');
+    const currentScore = document.getElementById('currentScore');
+    const wormStatus = document.getElementById('wormStatus');
+    const endTurnBtn = document.getElementById('endTurnBtn');
+    const rollDiceBtn = document.getElementById('rollDiceBtn');
+    const diceChoices = document.getElementById('diceChoices');
+    const diceRoll = document.getElementById('diceRoll');
+    
+    // Cacher et réinitialiser toutes les zones
+    if (diceArea) {
+        diceArea.style.display = 'none';
+    }
+    if (reservedArea) {
+        reservedArea.style.display = 'none';
+    }
+    if (reservedDice) {
+        reservedDice.innerHTML = '';
+    }
+    if (currentScore) {
+        currentScore.textContent = '0';
+    }
+    if (wormStatus) {
+        wormStatus.textContent = '❌';
+        wormStatus.className = 'text-danger';
+    }
+    if (endTurnBtn) {
+        endTurnBtn.style.display = 'none';
+    }
+    if (rollDiceBtn) {
+        rollDiceBtn.style.display = 'inline-block';
+    }
+    if (diceChoices) {
+        diceChoices.innerHTML = '';
+    }
+    if (diceRoll) {
+        diceRoll.innerHTML = '';
+    }
+}
+
+function endTurn() {
+    console.log('État du tour avant end_turn:', currentTurnState);
+    
+    socket.emit('end_turn', {
+        game_id: gameId
+    });
+    
+    // Réinitialiser immédiatement l'état du tour
+    resetTurnState();
+}
+
+// Nouvelles fonctions pour le choix de tuiles
+function showTileChoices(score) {
+    if (!score || score < 21) return;
+    
+    // Cacher les boutons d'action standards
+    const actionButtons = document.getElementById('actionButtons');
+    const tileChoiceArea = document.getElementById('tileChoiceArea');
+    
+    if (actionButtons) actionButtons.style.display = 'none';
+    if (tileChoiceArea) tileChoiceArea.style.display = 'block';
+    
+    // Récupérer les tuiles disponibles via l'API
+    fetch(`/api/game/${gameId}/available_tiles/${score}`)
+        .then(response => response.json())
+        .then(data => {
+            displayTileOptions(data);
+        })
+        .catch(error => {
+            console.error('Erreur lors de la récupération des tuiles:', error);
+        });
+}
+
+function displayTileOptions(data) {
+    const centerOptions = document.getElementById('centerTileOptions');
+    const stealableOptions = document.getElementById('stealableTileOptions');
+    const stealableChoices = document.getElementById('stealableTileChoices');
+    
+    if (!centerOptions || !stealableOptions || !stealableChoices) return;
+    
+    // Afficher les tuiles du centre
+    centerOptions.innerHTML = '';
+    data.center_tiles.forEach(tile => {
+        const tileBtn = createTileButton(tile, 'center');
+        centerOptions.appendChild(tileBtn);
+    });
+    
+    // Afficher les tuiles volables
+    stealableOptions.innerHTML = '';
+    if (data.stealable_tiles.length > 0) {
+        stealableChoices.style.display = 'block';
+        data.stealable_tiles.forEach(tile => {
+            const tileBtn = createTileButton(tile, 'player');
+            stealableOptions.appendChild(tileBtn);
+        });
+    } else {
+        stealableChoices.style.display = 'none';
+    }
+    
+    // Ajouter les event listeners pour les boutons d'action
+    setupTileChoiceActions(data);
+}
+
+function createTileButton(tile, source) {
+    const button = document.createElement('button');
+    button.className = `btn btn-outline-primary tile-choice-btn`;
+    
+    if (source === 'player') {
+        button.classList.add('btn-outline-warning');
+    }
+    
+    let buttonText = `${tile.value} (${tile.worms}🐛)`;
+    if (source === 'player') {
+        buttonText += ` de ${tile.player}`;
+    }
+    
+    button.innerHTML = buttonText;
+    button.title = source === 'player' 
+        ? `Voler la tuile ${tile.value} de ${tile.player} (${tile.worms} vers)`
+        : `Prendre la tuile ${tile.value} du centre (${tile.worms} vers)`;
+    
+    button.onclick = () => chooseTile(tile, source);
+    
+    return button;
+}
+
+function chooseTile(tile, source) {
+    const tileChoice = {
+        source: source,
+        value: tile.value,
+        player: tile.player
+    };
+    
+    socket.emit('choose_tile', {
+        game_id: gameId,
+        tile_choice: tileChoice
+    });
+    
+    // Réinitialiser l'interface immédiatement
+    hideTileChoices();
+    resetTurnState();
+}
+
+function setupTileChoiceActions(data) {
+    const autoChooseBtn = document.getElementById('autoChooseTileBtn');
+    const cancelBtn = document.getElementById('cancelTileChoiceBtn');
+    
+    if (autoChooseBtn) {
+        autoChooseBtn.onclick = () => {
+            // Choisir automatiquement la meilleure tuile
+            if (data.stealable_tiles.length > 0) {
+                // Privilégier les tuiles volables (plus de valeur stratégique)
+                const bestStealable = data.stealable_tiles.reduce((a, b) => 
+                    a.worms > b.worms ? a : b
+                );
+                chooseTile(bestStealable, 'player');
+            } else if (data.best_center_tile) {
+                chooseTile(data.best_center_tile, 'center');
+            }
+        };
+    }
+    
+    if (cancelBtn) {
+        cancelBtn.onclick = () => {
+            // Utiliser l'ancienne méthode (prend automatiquement la meilleure tuile)
+            endTurn();
+        };
+    }
+}
+
+function hideTileChoices() {
+    const actionButtons = document.getElementById('actionButtons');
+    const tileChoiceArea = document.getElementById('tileChoiceArea');
+    
+    if (actionButtons) actionButtons.style.display = 'block';
+    if (tileChoiceArea) tileChoiceArea.style.display = 'none';
 }
 </script>
 {% endblock %} 
