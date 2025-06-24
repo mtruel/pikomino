@@ -1,0 +1,202 @@
+/* Pikomino Game Styles */
+
+.tile {
+    transition: transform 0.2s ease;
+}
+
+.tile:hover {
+    transform: scale(1.05);
+}
+
+.die {
+    font-size: 2rem;
+    padding: 0.5rem;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    background: white;
+    text-align: center;
+    min-width: 60px;
+    transition: all 0.2s ease;
+}
+
+.die:hover {
+    background: #f8f9fa;
+    transform: scale(1.1);
+}
+
+.dice-choice-btn {
+    font-size: 1.2rem;
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+}
+
+.player-card.current {
+    border-color: #ffc107 !important;
+    box-shadow: 0 0 10px rgba(255, 193, 7, 0.3);
+}
+
+.game-board {
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    border-radius: 15px;
+    padding: 1rem;
+}
+
+.tile-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    transition: all 0.3s ease;
+}
+
+.tile-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+}
+
+.dice-area {
+    background: #f8f9fa;
+    border-radius: 10px;
+    padding: 1rem;
+    margin: 1rem 0;
+}
+
+.score-display {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #28a745;
+}
+
+.worm-indicator {
+    font-size: 1.2rem;
+}
+
+.turn-history {
+    background: #fff;
+    border-radius: 8px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.turn-history-item {
+    padding: 0.75rem;
+    border-bottom: 1px solid #eee;
+    transition: background 0.2s ease;
+}
+
+.turn-history-item:hover {
+    background: #f8f9fa;
+}
+
+.turn-history-item:last-child {
+    border-bottom: none;
+}
+
+.player-info {
+    background: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%);
+    border-radius: 10px;
+    padding: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.current-player-highlight {
+    background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%) !important;
+    border: 2px solid #ff6b6b;
+}
+
+.game-status-bar {
+    background: white;
+    border-radius: 10px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.animate-dice {
+    animation: diceRoll 0.5s ease-in-out;
+}
+
+@keyframes diceRoll {
+    0% { transform: rotate(0deg); }
+    25% { transform: rotate(90deg); }
+    50% { transform: rotate(180deg); }
+    75% { transform: rotate(270deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.pulse {
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+.fade-in {
+    animation: fadeIn 0.5s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .die {
+        font-size: 1.5rem;
+        min-width: 50px;
+        padding: 0.3rem;
+    }
+    
+    .tile-card {
+        width: 60px !important;
+    }
+    
+    .game-board {
+        padding: 0.5rem;
+    }
+}
+
+/* Success and error states */
+.success-state {
+    background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+    border-color: #28a745;
+}
+
+.error-state {
+    background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+    border-color: #dc3545;
+}
+
+.warning-state {
+    background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+    border-color: #ffc107;
+}
+
+/* Loading states */
+.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 20px;
+    height: 20px;
+    margin: -10px 0 0 -10px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #007bff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+} 

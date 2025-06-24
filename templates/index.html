@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block title %}Pikomino - Accueil{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <div class="jumbotron bg-success text-white p-5 rounded mb-4">
+            <h1 class="display-4">
+                <i class="fas fa-bug me-3"></i>Pikomino
+            </h1>
+            <p class="lead">Bienvenue dans le simulateur de jeu Pikomino ! Créez une partie et testez vos stratégies contre l'IA.</p>
+            <hr class="my-4">
+            <p>Lancez les dés, récupérez des tuiles et accumulez des vers pour gagner !</p>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h3><i class="fas fa-play me-2"></i>Nouvelle Partie</h3>
+            </div>
+            <div class="card-body">
+                <form id="newGameForm">
+                    <div class="mb-3">
+                        <label for="playerName" class="form-label">Votre nom :</label>
+                        <input type="text" class="form-control" id="playerName" value="Joueur" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Adversaires IA :</label>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <input type="text" class="form-control mb-2" id="player2" value="Alice (Conservatrice)" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <input type="text" class="form-control mb-2" id="player3" value="Bob (Agressif)" readonly>
+                            </div>
+                        </div>
+                        <small class="text-muted">Les adversaires IA utilisent différentes stratégies automatiquement.</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Mode de jeu :</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="gameMode" id="interactive" value="interactive" checked>
+                            <label class="form-check-label" for="interactive">
+                                <strong>Interactif</strong> - Vous jouez manuellement
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="gameMode" id="simulation" value="simulation">
+                            <label class="form-check-label" for="simulation">
+                                <strong>Simulation</strong> - Partie automatique entre IA
+                            </label>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-success btn-lg">
+                        <i class="fas fa-rocket me-2"></i>Créer la partie
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-md-4">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-dice-six fa-3x text-primary mb-3"></i>
+                        <h5>Lancez les dés</h5>
+                        <p class="text-muted">Utilisez vos 8 dés pour obtenir le meilleur score possible</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-puzzle-piece fa-3x text-warning mb-3"></i>
+                        <h5>Collectez des tuiles</h5>
+                        <p class="text-muted">Obtenez au moins un ver et le score requis pour prendre une tuile</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-trophy fa-3x text-success mb-3"></i>
+                        <h5>Gagnez des vers</h5>
+                        <p class="text-muted">Le joueur avec le plus de vers à la fin remporte la partie</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="loadingModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-body text-center">
+                <div class="spinner-border text-success mb-3" role="status">
+                    <span class="visually-hidden">Chargement...</span>
+                </div>
+                <p>Création de la partie en cours...</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('newGameForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
+    loadingModal.show();
+    
+    const playerName = document.getElementById('playerName').value;
+    const gameMode = document.querySelector('input[name="gameMode"]:checked').value;
+    
+    const players = gameMode === 'interactive' 
+        ? [playerName, 'Alice', 'Bob']
+        : ['Alice', 'Bob', 'Charlie'];
+    
+    try {
+        const response = await fetch('/api/create_game', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                players: players,
+                mode: gameMode
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.game_id) {
+            window.location.href = `/game/${data.game_id}`;
+        } else {
+            throw new Error('Erreur lors de la création de la partie');
+        }
+    } catch (error) {
+        loadingModal.hide();
+        alert('Erreur lors de la création de la partie: ' + error.message);
+    }
+});
+</script>
+{% endblock %} 

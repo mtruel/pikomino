@@ -1,0 +1,424 @@
+{% extends "base.html" %}
+
+{% block title %}Pikomino - Partie{{ ' - ' + game_id[:8] }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Informations de la partie -->
+    <div class="col-12 mb-3">
+        <div class="card bg-light">
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-6">
+                        <h4 class="mb-0">
+                            <i class="fas fa-gamepad me-2"></i>Partie de Pikomino
+                        </h4>
+                        <small class="text-muted">ID: {{ game_id[:8] }}</small>
+                    </div>
+                    <div class="col-md-6 text-md-end">
+                        <span class="badge bg-info fs-6" id="gameStatus">En cours</span>
+                        <span class="badge bg-secondary fs-6 ms-2" id="turnInfo">Tour: 1</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Zone de jeu principale -->
+    <div class="col-lg-8">
+        <!-- Tuiles du centre -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5><i class="fas fa-th me-2"></i>Tuiles disponibles</h5>
+            </div>
+            <div class="card-body">
+                <div id="centerTiles" class="d-flex flex-wrap gap-2">
+                    <!-- Les tuiles seront ajoutées dynamiquement -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Zone de jeu du joueur actuel -->
+        <div class="card mb-3" id="currentPlayerArea">
+            <div class="card-header bg-warning">
+                <h5 class="mb-0">
+                    <i class="fas fa-user me-2"></i>
+                    <span id="currentPlayerName">Joueur</span> - À votre tour !
+                </h5>
+            </div>
+            <div class="card-body">
+                <!-- Dés lancés -->
+                <div class="mb-3" id="diceArea" style="display: none;">
+                    <h6>Dés lancés :</h6>
+                    <div id="diceRoll" class="d-flex gap-2 mb-3">
+                        <!-- Les dés seront affichés ici -->
+                    </div>
+                    <div id="diceChoices" class="d-flex gap-2">
+                        <!-- Les boutons de choix seront affichés ici -->
+                    </div>
+                </div>
+
+                <!-- Dés réservés -->
+                <div class="mb-3" id="reservedArea" style="display: none;">
+                    <h6>Dés réservés :</h6>
+                    <div id="reservedDice" class="d-flex gap-2 mb-2">
+                        <!-- Les dés réservés seront affichés ici -->
+                    </div>
+                    <div class="alert alert-info">
+                        Score actuel : <strong id="currentScore">0</strong> points
+                        | Vers : <span id="wormStatus" class="text-danger">❌</span>
+                    </div>
+                </div>
+
+                <!-- Actions -->
+                <div id="actionButtons">
+                    <button class="btn btn-primary" id="rollDiceBtn">
+                        <i class="fas fa-dice me-2"></i>Lancer les dés
+                    </button>
+                    <button class="btn btn-success" id="endTurnBtn" style="display: none;">
+                        <i class="fas fa-check me-2"></i>Terminer le tour
+                    </button>
+                    <button class="btn btn-secondary" id="nextPlayerBtn" style="display: none;">
+                        <i class="fas fa-arrow-right me-2"></i>Joueur suivant
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Historique des tours -->
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-history me-2"></i>Historique des tours</h5>
+            </div>
+            <div class="card-body">
+                <div id="turnHistory" style="max-height: 300px; overflow-y: auto;">
+                    <p class="text-muted">Aucun tour joué pour le moment.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Panneau des joueurs -->
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-users me-2"></i>Joueurs</h5>
+            </div>
+            <div class="card-body">
+                <div id="playersPanel">
+                    <!-- Les informations des joueurs seront ajoutées dynamiquement -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Règles rapides -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h6><i class="fas fa-info-circle me-2"></i>Règles rapides</h6>
+            </div>
+            <div class="card-body">
+                <ul class="small mb-0">
+                    <li>Lancez les 8 dés</li>
+                    <li>Choisissez une valeur et mettez tous ces dés de côté</li>
+                    <li>Relancez avec les dés restants</li>
+                    <li>Vous ne pouvez pas choisir la même valeur deux fois</li>
+                    <li>Il faut au moins un ver pour prendre une tuile</li>
+                    <li>Le score doit être ≥ à la valeur de la tuile</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de fin de partie -->
+<div class="modal fade" id="gameOverModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-trophy me-2"></i>Partie terminée !
+                </h5>
+            </div>
+            <div class="modal-body">
+                <div id="gameResults">
+                    <!-- Les résultats seront affichés ici -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" onclick="window.location.href='/'">
+                    Nouvelle partie
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const gameId = '{{ game_id }}';
+const socket = io();
+
+// État du jeu
+let gameState = {{ game_state | tojson }};
+let isHumanPlayer = false;
+
+// Initialisation
+document.addEventListener('DOMContentLoaded', function() {
+    socket.emit('join_game', { game_id: gameId });
+    updateGameDisplay();
+    
+    // Événements
+    document.getElementById('rollDiceBtn').addEventListener('click', rollDice);
+    document.getElementById('nextPlayerBtn').addEventListener('click', nextPlayer);
+});
+
+// Événements Socket.IO
+socket.on('game_state', function(data) {
+    gameState = data;
+    updateGameDisplay();
+});
+
+socket.on('dice_rolled', function(data) {
+    displayDiceRoll(data);
+});
+
+socket.on('error', function(data) {
+    alert('Erreur: ' + data.message);
+});
+
+// Fonctions principales
+function updateGameDisplay() {
+    updatePlayersPanel();
+    updateCenterTiles();
+    updateCurrentPlayer();
+    updateGameStatus();
+}
+
+function updatePlayersPanel() {
+    const panel = document.getElementById('playersPanel');
+    panel.innerHTML = '';
+    
+    Object.entries(gameState.player_scores).forEach(([name, score]) => {
+        const isCurrentPlayer = name === gameState.current_player;
+        const tileCount = gameState.player_tile_counts[name];
+        
+        const playerDiv = document.createElement('div');
+        playerDiv.className = `card mb-2 ${isCurrentPlayer ? 'border-warning' : ''}`;
+        playerDiv.innerHTML = `
+            <div class="card-body py-2">
+                <div class="d-flex justify-content-between align-items-center">
+                    <strong class="${isCurrentPlayer ? 'text-warning' : ''}">${name}</strong>
+                    <div>
+                        <span class="badge bg-success">${score} 🐛</span>
+                        <span class="badge bg-secondary">${tileCount} tuiles</span>
+                    </div>
+                </div>
+            </div>
+        `;
+        panel.appendChild(playerDiv);
+    });
+}
+
+function updateCenterTiles() {
+    const container = document.getElementById('centerTiles');
+    container.innerHTML = '';
+    
+    gameState.tiles_center.forEach(tile => {
+        const tileDiv = document.createElement('div');
+        tileDiv.className = 'tile';
+        tileDiv.innerHTML = `
+            <div class="card text-center" style="width: 80px;">
+                <div class="card-body p-2">
+                    <div class="fw-bold">${tile.value}</div>
+                    <div style="font-size: 0.8em;">${'🐛'.repeat(tile.worms)}</div>
+                </div>
+            </div>
+        `;
+        container.appendChild(tileDiv);
+    });
+}
+
+function updateCurrentPlayer() {
+    const nameElement = document.getElementById('currentPlayerName');
+    nameElement.textContent = gameState.current_player;
+    
+    // Vérifier si c'est le tour du joueur humain
+    isHumanPlayer = gameState.current_player_idx === 0; // Premier joueur = humain
+    
+    const area = document.getElementById('currentPlayerArea');
+    if (isHumanPlayer) {
+        area.style.display = 'block';
+        document.getElementById('rollDiceBtn').style.display = 'inline-block';
+    } else {
+        area.style.display = 'none';
+        // Auto-play pour l'IA
+        setTimeout(playAITurn, 1000);
+    }
+}
+
+function updateGameStatus() {
+    const statusElement = document.getElementById('gameStatus');
+    const turnElement = document.getElementById('turnInfo');
+    
+    if (gameState.game_over) {
+        statusElement.textContent = 'Terminée';
+        statusElement.className = 'badge bg-danger fs-6';
+        showGameOverModal();
+    } else {
+        statusElement.textContent = 'En cours';
+        statusElement.className = 'badge bg-success fs-6';
+    }
+    
+    turnElement.textContent = `Tour: ${gameState.turn_count + 1}`;
+}
+
+function rollDice() {
+    if (!isHumanPlayer) return;
+    
+    socket.emit('roll_dice', {
+        game_id: gameId,
+        remaining_dice: 8 // Sera ajusté selon l'état du tour
+    });
+    
+    document.getElementById('rollDiceBtn').style.display = 'none';
+}
+
+function displayDiceRoll(data) {
+    const diceArea = document.getElementById('diceArea');
+    const diceRoll = document.getElementById('diceRoll');
+    const choices = document.getElementById('diceChoices');
+    
+    diceArea.style.display = 'block';
+    
+    // Afficher les dés
+    diceRoll.innerHTML = '';
+    data.dice.forEach(die => {
+        const dieDiv = document.createElement('div');
+        dieDiv.className = 'die';
+        dieDiv.innerHTML = getDiceDisplay(die);
+        diceRoll.appendChild(dieDiv);
+    });
+    
+    // Afficher les choix possibles
+    choices.innerHTML = '';
+    const uniqueValues = [...new Set(data.dice)];
+    uniqueValues.forEach(value => {
+        const count = data.dice.filter(d => d === value).length;
+        const button = document.createElement('button');
+        button.className = 'btn btn-outline-primary';
+        button.innerHTML = `${getDiceDisplay(value)} x${count}`;
+        button.onclick = () => chooseDiceValue(value);
+        choices.appendChild(button);
+    });
+}
+
+function getDiceDisplay(diceValue) {
+    const displays = {
+        'ONE': '⚀',
+        'TWO': '⚁',
+        'THREE': '⚂',
+        'FOUR': '⚃',
+        'FIVE': '⚄',
+        'WORM': '🐛'
+    };
+    return displays[diceValue] || diceValue;
+}
+
+function chooseDiceValue(value) {
+    socket.emit('choose_dice_value', {
+        game_id: gameId,
+        value: value
+    });
+}
+
+function playAITurn() {
+    if (isHumanPlayer || gameState.game_over) return;
+    
+    fetch(`/api/game/${gameId}/play_turn`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.game_state) {
+            gameState = data.game_state;
+            updateGameDisplay();
+            addTurnToHistory(data.details);
+        }
+    })
+    .catch(error => {
+        console.error('Erreur lors du tour IA:', error);
+    });
+}
+
+function nextPlayer() {
+    fetch(`/api/game/${gameId}/state`)
+    .then(response => response.json())
+    .then(data => {
+        gameState = data;
+        updateGameDisplay();
+    });
+}
+
+function addTurnToHistory(details) {
+    const history = document.getElementById('turnHistory');
+    const turnDiv = document.createElement('div');
+    turnDiv.className = 'border-bottom pb-2 mb-2';
+    
+    let resultText = '';
+    switch(details.result.value || details.result) {
+        case 'success':
+            resultText = `✅ Tuile ${details.tile_taken.value} prise (${details.tile_taken.worms} vers)`;
+            break;
+        case 'failed_no_worm':
+            resultText = '❌ Échec - Aucun ver';
+            break;
+        case 'failed_insufficient_score':
+            resultText = '❌ Échec - Score insuffisant';
+            break;
+        case 'failed_no_valid_choice':
+            resultText = '❌ Échec - Aucun choix valide';
+            break;
+    }
+    
+    turnDiv.innerHTML = `
+        <div class="small">
+            <strong>${details.player}</strong> - Score: ${details.final_score} pts ${resultText}
+        </div>
+    `;
+    
+    history.insertBefore(turnDiv, history.firstChild);
+}
+
+function showGameOverModal() {
+    const modal = new bootstrap.Modal(document.getElementById('gameOverModal'));
+    const results = document.getElementById('gameResults');
+    
+    // Trouver le gagnant
+    let winner = '';
+    let maxScore = -1;
+    Object.entries(gameState.player_scores).forEach(([name, score]) => {
+        if (score > maxScore) {
+            maxScore = score;
+            winner = name;
+        }
+    });
+    
+    results.innerHTML = `
+        <h4 class="text-center mb-3">🎉 ${winner} a gagné ! 🎉</h4>
+        <div class="row">
+            ${Object.entries(gameState.player_scores).map(([name, score]) => `
+                <div class="col-12 mb-2">
+                    <div class="d-flex justify-content-between">
+                        <span class="${name === winner ? 'fw-bold text-success' : ''}">${name}</span>
+                        <span class="${name === winner ? 'fw-bold text-success' : ''}">${score} vers</span>
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+    `;
+    
+    modal.show();
+}
+</script>
+{% endblock %} 

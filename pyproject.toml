@@ -1,0 +1,11 @@
+[project]
+name = "secondes"
+version = "0.1.0"
+description = "Pikomino game simulation with Flask web interface"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "flask>=2.3.0",
+    "flask-socketio>=5.3.0",
+    "matplotlib>=3.10.3",
+]
