@@ -294,6 +294,93 @@ Ce projet est sous licence MIT. Voir le fichier LICENSE pour plus de détails.
 - [ ] Historique des parties sauvegardées
 - [ ] Interface de création de stratégies visuelles
 
+## Nouveau Système d'Historique et de Contexte Enrichi
+
+Le jeu inclut maintenant un système d'historique complet et un contexte enrichi pour les stratégies, permettant aux IA de prendre des décisions plus informées.
+
+### Informations Disponibles pour les Stratégies
+
+Les stratégies ont maintenant accès à un objet `GameContext` qui contient :
+
+1. **État du tour actuel** :
+   - Dés restants
+   - Dés réservés 
+   - Score actuel
+   - Valeurs déjà utilisées
+
+2. **État complet du plateau** :
+   - Toutes les tuiles disponibles dans le centre
+   - Tuiles de tous les joueurs
+   - Tuiles retirées du jeu
+
+3. **Informations calculées** :
+   - Tuiles volables (avec propriétaires)
+   - Tuiles du centre accessibles avec le score actuel
+   - Scores des adversaires
+   - Joueur en tête
+
+4. **Historique complet** :
+   - Tous les tours précédents
+   - Statistiques par joueur
+   - Patterns de jeu des adversaires
+
+### Exemple d'Usage du Contexte
+
+```python
+from strategies import GameStrategy, GameContext
+
+class SmartStrategy(GameStrategy):
+    def choose_dice_value(self, context: GameContext):
+        turn_state = context.turn_state
+        
+        # Analyser l'historique des adversaires
+        for opponent in context.all_players:
+            if opponent != context.current_player:
+                stats = context.game_history.get_player_statistics(opponent.name)
+                print(f"{opponent.name} a un taux de succès de {stats.get('success_rate', 0):.2%}")
+        
+        # Adapter la stratégie selon la position dans la partie
+        if context.is_current_player_leading():
+            # Jouer conservateur si on mène
+            return self._conservative_choice(context)
+        else:
+            # Prendre plus de risques si on est en retard
+            return self._aggressive_choice(context)
+    
+    def choose_target_tile(self, context: GameContext):
+        # Analyser l'impact du vol vs prendre au centre
+        if context.stealable_tiles and context.available_center_tiles:
+            best_steal = max(context.stealable_tiles, key=lambda x: x[0].worms)
+            best_center = max(context.available_center_tiles, key=lambda t: t.worms)
+            
+            # Impact double du vol (gain + perte adversaire)
+            steal_impact = best_steal[0].worms * 2
+            center_impact = best_center.worms
+            
+            return best_steal[0] if steal_impact > center_impact else best_center
+```
+
+### Historique Structuré
+
+Chaque tour est enregistré avec :
+- Tous les lancers de dés
+- Choix effectués
+- État du jeu avant/après
+- Résultat du tour
+- Statistiques calculées
+
+```python
+# Accéder aux statistiques d'un joueur
+game_stats = game.game_history.get_player_statistics("Alice")
+print(f"Taux de succès: {game_stats['success_rate']:.2%}")
+print(f"Score moyen sur succès: {game_stats['average_score_on_success']:.1f}")
+
+# Analyser les derniers tours
+recent_turns = game.game_history.get_recent_turns(3)
+for turn in recent_turns:
+    print(f"Tour {turn.turn_number}: {turn.player_name} - {turn.result.value}")
+```
+
 ---
 
 **Amusez-vous bien avec Pikomino !** 🐛🎲

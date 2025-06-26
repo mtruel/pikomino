@@ -15,6 +15,7 @@ from pikomino import (
     PikominoGame,
     simulate_game,
 )
+import strategies
 
 
 def generate_distinct_colors(n):
@@ -41,9 +42,9 @@ def run_console_demo():
 
     # Créer des joueurs avec différentes stratégies
     players = [
-        Player("Alice", pikomino.ConservativeStrategy()),
-        Player("Bob", pikomino.AggressiveStrategy()),
-        Player("Charlie", pikomino.ConservativeStrategy()),
+        Player("Alice", strategies.ConservativeStrategy()),
+        Player("Bob", strategies.AggressiveStrategy()),
+        Player("Charlie", strategies.ConservativeStrategy()),
     ]
 
     # Lancer une partie
@@ -82,7 +83,7 @@ def run_console_demo():
         print(f"\nGagnant: {winner.name} avec {winner.get_score()} vers! 🎉")
 
 
-def run_simulation(num_games=10):
+def run_simulation(num_games=100):
     """Lance une simulation de plusieurs parties"""
     print(f"🎯 SIMULATION DE {num_games} PARTIES")
     print("=" * 50)
@@ -90,11 +91,11 @@ def run_simulation(num_games=10):
     
     player_names = ["Conservative", "Aggressive", "Balanced", "Random", "Optimal"]
     game_strategies = [
-        pikomino.ConservativeStrategy(),
-        pikomino.AggressiveStrategy(),
-        pikomino.BalancedStrategy(),
-        pikomino.RandomStrategy(),
-        pikomino.OptimalStrategy(),
+        strategies.ConservativeStrategy(),
+        strategies.AggressiveStrategy(),
+        strategies.BalancedStrategy(),
+        strategies.RandomStrategy(),
+        strategies.OptimalStrategy(),
     ]
 
     # Générer les couleurs dynamiquement

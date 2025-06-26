@@ -101,7 +101,7 @@ class TurnState:
 
 
 # Import des stratégies depuis le module dédié
-from strategies import GameStrategy
+from strategies import GameStrategy, GameHistory, GameContext, GameStateSnapshot, TurnHistory
 
 
 class Player:
@@ -128,12 +128,13 @@ class Player:
         """Retire et retourne la tuile du dessus"""
         return self.tiles.pop() if self.tiles else None
 
-    def choose_dice_value(self, turn_state: TurnState) -> Optional[DiceValue]:
+    def choose_dice_value(self, context: GameContext) -> Optional[DiceValue]:
         """Choisit une valeur de dé à réserver"""
         if self.strategy:
-            return self.strategy.choose_dice_value(turn_state, self)
+            return self.strategy.choose_dice_value(context)
 
         # Stratégie par défaut : choisir la valeur la plus fréquente
+        turn_state = context.turn_state
         available_values = [
             v for v in turn_state.current_roll if turn_state.can_reserve_value(v)
         ]
@@ -149,16 +150,13 @@ class Player:
         # Choisir la valeur avec le plus d'occurrences
         return max(value_counts.keys(), key=lambda v: value_counts[v])
 
-    def should_continue_turn(self, turn_state: TurnState) -> bool:
+    def should_continue_turn(self, context: GameContext) -> bool:
         """Décide si continuer le tour ou s'arrêter"""
         if self.strategy:
-            return self.strategy.should_continue_turn(turn_state, self)
+            return self.strategy.should_continue_turn(context)
 
-        # Stratégie par défaut : s'arrêter si on a au moins 21 points
-        return turn_state.get_total_score() < 25
-
-
-
+        # Stratégie par défaut : s'arrêter si on a au moins 25 points
+        return context.turn_state.get_total_score() < 25
 
 
 class PikominoGame:
@@ -170,7 +168,9 @@ class PikominoGame:
         self.tiles_center = self._initialize_tiles()
         self.removed_tiles: List[Tile] = []
         self.game_over = False
-        self.turn_history: List[Dict] = []
+        self.turn_history: List[Dict] = []  # Ancienne structure (pour compatibilité)
+        self.game_history = GameHistory()  # Nouvel historique structuré
+        self.turn_number = 0
 
     def _initialize_tiles(self) -> List[Tile]:
         """Initialise les tuiles du centre"""
@@ -196,13 +196,59 @@ class PikominoGame:
         """Vérifie si on peut prendre une tuile donnée"""
         return has_worm and score >= tile_value
 
-    def find_tile_to_take(self, score: int, has_worm: bool) -> Optional[Tile]:
+    def _create_game_state_snapshot(self, turn_details: Dict = None) -> GameStateSnapshot:
+        """Crée un instantané de l'état du jeu"""
+        return GameStateSnapshot(
+            turn_number=self.turn_number,
+            current_player_name=self.get_current_player().name,
+            tiles_center=list(self.tiles_center),  # Copie des tuiles du centre
+            players_tiles={p.name: list(p.tiles) for p in self.players},  # Copie des tuiles des joueurs
+            removed_tiles=list(self.removed_tiles),  # Copie des tuiles retirées
+            player_scores={p.name: p.get_score() for p in self.players},
+            turn_details=turn_details or {}
+        )
+
+    def _build_game_context(self, turn_state: TurnState) -> GameContext:
+        """Construit le contexte complet du jeu pour les stratégies"""
+        current_player = self.get_current_player()
+        score = turn_state.get_total_score()
+        
+        # Calculer les tuiles volables (score exact)
+        stealable_tiles = []
+        for player in self.players:
+            if player != current_player:
+                top_tile = player.get_top_tile()
+                if top_tile and top_tile.value == score:
+                    stealable_tiles.append((top_tile, player))
+
+        # Calculer les tuiles du centre accessibles (score >= valeur tuile)
+        available_center_tiles = [t for t in self.tiles_center if t.value <= score]
+
+        return GameContext(
+            turn_state=turn_state,
+            current_player=current_player,
+            all_players=list(self.players),
+            tiles_center=list(self.tiles_center),
+            removed_tiles=list(self.removed_tiles),
+            stealable_tiles=stealable_tiles,
+            available_center_tiles=available_center_tiles,
+            game_history=self.game_history,
+            turn_number=self.turn_number
+        )
+
+    def find_tile_to_take(self, score: int, has_worm: bool, turn_state: TurnState) -> Optional[Tile]:
         """Trouve la meilleure tuile à prendre avec le score donné"""
         if not has_worm:
             return None
 
         current_player = self.get_current_player()
         
+        # Si le joueur a une stratégie, utiliser le nouveau système
+        if current_player.strategy:
+            context = self._build_game_context(turn_state)
+            return current_player.strategy.choose_target_tile(context)
+
+        # Comportement par défaut (code original)
         # Rassembler toutes les tuiles volables (score exact)
         stealable_tiles = []
         for player in self.players:
@@ -213,12 +259,6 @@ class PikominoGame:
 
         # Rassembler les tuiles du centre accessibles (score >= valeur tuile)
         center_tiles = [t for t in self.tiles_center if t.value <= score]
-
-        # Si le joueur a une stratégie, lui laisser choisir
-        if current_player.strategy:
-            return current_player.strategy.choose_target_tile(
-                score, has_worm, center_tiles, stealable_tiles, current_player
-            )
 
         # Comportement par défaut : priorité au vol, sinon plus haute tuile du centre
         if stealable_tiles:
@@ -272,6 +312,11 @@ class PikominoGame:
         """Joue un tour complet pour le joueur actuel et retourne le résultat avec les détails"""
         current_player = self.get_current_player()
         turn_state = TurnState()
+        self.turn_number += 1
+        
+        # Créer l'état du jeu avant le tour
+        game_state_before = self._create_game_state_snapshot()
+        
         turn_details = {
             "player": current_player.name,
             "rolls": [],
@@ -281,11 +326,15 @@ class PikominoGame:
             "result": None,
         }
 
+        dice_rolls = []  # Pour l'historique structuré
+
         while turn_state.remaining_dice > 0:
             # Lancer les dés
             turn_state.current_roll = [
                 Dice.roll() for _ in range(turn_state.remaining_dice)
             ]
+            dice_rolls.append(list(turn_state.current_roll))  # Copie pour l'historique
+            
             turn_details["rolls"].append(
                 {
                     "dice": [dice.name for dice in turn_state.current_roll],
@@ -293,14 +342,32 @@ class PikominoGame:
                 }
             )
 
-            # Le joueur choisit une valeur
-            chosen_value = current_player.choose_dice_value(turn_state)
+            # Construire le contexte et le joueur choisit une valeur
+            context = self._build_game_context(turn_state)
+            chosen_value = current_player.choose_dice_value(context)
 
             if chosen_value is None or not turn_state.can_reserve_value(chosen_value):
                 # Aucune valeur valide disponible
                 self.handle_failed_turn()
                 turn_details["result"] = TurnResult.FAILED_NO_VALID_CHOICE
                 self.turn_history.append(turn_details)
+                
+                # Créer l'entrée d'historique structuré
+                game_state_after = self._create_game_state_snapshot(turn_details)
+                turn_history_entry = TurnHistory(
+                    turn_number=self.turn_number,
+                    player_name=current_player.name,
+                    dice_rolls=dice_rolls,
+                    reserved_dice=turn_state.reserved_dice,
+                    final_score=turn_state.get_total_score(),
+                    final_has_worm=turn_state.has_worm(),
+                    tile_taken=None,
+                    result=TurnResult.FAILED_NO_VALID_CHOICE,
+                    game_state_before=game_state_before,
+                    game_state_after=game_state_after
+                )
+                self.game_history.add_turn(turn_history_entry)
+                
                 return TurnResult.FAILED_NO_VALID_CHOICE, turn_details
 
             # Réserver tous les dés de cette valeur
@@ -315,11 +382,10 @@ class PikominoGame:
             turn_details["rolls"][-1]["chosen_count"] = count
 
             # Vérifier si le joueur veut continuer
-            if (
-                turn_state.remaining_dice > 0
-                and not current_player.should_continue_turn(turn_state)
-            ):
-                break
+            if turn_state.remaining_dice > 0:
+                context = self._build_game_context(turn_state)
+                if not current_player.should_continue_turn(context):
+                    break
 
         # Fin du tour : essayer de prendre une tuile
         score = turn_state.get_total_score()
@@ -335,13 +401,47 @@ class PikominoGame:
             self.handle_failed_turn()
             turn_details["result"] = TurnResult.FAILED_NO_WORM
             self.turn_history.append(turn_details)
+            
+            # Créer l'entrée d'historique structuré
+            game_state_after = self._create_game_state_snapshot(turn_details)
+            turn_history_entry = TurnHistory(
+                turn_number=self.turn_number,
+                player_name=current_player.name,
+                dice_rolls=dice_rolls,
+                reserved_dice=turn_state.reserved_dice,
+                final_score=score,
+                final_has_worm=has_worm,
+                tile_taken=None,
+                result=TurnResult.FAILED_NO_WORM,
+                game_state_before=game_state_before,
+                game_state_after=game_state_after
+            )
+            self.game_history.add_turn(turn_history_entry)
+            
             return TurnResult.FAILED_NO_WORM, turn_details
 
-        tile_to_take = self.find_tile_to_take(score, has_worm)
+        tile_to_take = self.find_tile_to_take(score, has_worm, turn_state)
         if tile_to_take is None:
             self.handle_failed_turn()
             turn_details["result"] = TurnResult.FAILED_INSUFFICIENT_SCORE
             self.turn_history.append(turn_details)
+            
+            # Créer l'entrée d'historique structuré
+            game_state_after = self._create_game_state_snapshot(turn_details)
+            turn_history_entry = TurnHistory(
+                turn_number=self.turn_number,
+                player_name=current_player.name,
+                dice_rolls=dice_rolls,
+                reserved_dice=turn_state.reserved_dice,
+                final_score=score,
+                final_has_worm=has_worm,
+                tile_taken=None,
+                result=TurnResult.FAILED_INSUFFICIENT_SCORE,
+                game_state_before=game_state_before,
+                game_state_after=game_state_after
+            )
+            self.game_history.add_turn(turn_history_entry)
+            
             return TurnResult.FAILED_INSUFFICIENT_SCORE, turn_details
 
         self.take_tile(tile_to_take)
@@ -351,6 +451,23 @@ class PikominoGame:
         }
         turn_details["result"] = TurnResult.SUCCESS
         self.turn_history.append(turn_details)
+        
+        # Créer l'entrée d'historique structuré
+        game_state_after = self._create_game_state_snapshot(turn_details)
+        turn_history_entry = TurnHistory(
+            turn_number=self.turn_number,
+            player_name=current_player.name,
+            dice_rolls=dice_rolls,
+            reserved_dice=turn_state.reserved_dice,
+            final_score=score,
+            final_has_worm=has_worm,
+            tile_taken=tile_to_take,
+            result=TurnResult.SUCCESS,
+            game_state_before=game_state_before,
+            game_state_after=game_state_after
+        )
+        self.game_history.add_turn(turn_history_entry)
+        
         return TurnResult.SUCCESS, turn_details
 
     def is_game_over(self) -> bool:
@@ -386,6 +503,7 @@ class PikominoGame:
             "player_tile_counts": {p.name: len(p.tiles) for p in self.players},
             "game_over": self.is_game_over(),
             "turn_count": len(self.turn_history),
+            "turn_number": self.turn_number,
         }
 
 
