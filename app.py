@@ -9,12 +9,70 @@ import time
 from pikomino import (
     Player,
     PikominoGame,
-    ConservativeStrategy,
-    AggressiveStrategy,
     DiceValue,
     TurnResult,
     TurnState,
 )
+from strategies import (
+    ConservativeStrategy,
+    AggressiveStrategy,
+    BalancedStrategy,
+    TargetedStrategy,
+    RandomStrategy,
+    OptimalStrategy,
+)
+
+# Constante définissant toutes les stratégies disponibles
+AVAILABLE_STRATEGIES = {
+    'conservative': {
+        'class': ConservativeStrategy,
+        'name': 'Conservative',
+        'description': 'Stratégie prudente qui s\'arrête dès qu\'elle peut prendre une tuile'
+    },
+    'aggressive': {
+        'class': AggressiveStrategy,
+        'name': 'Aggressive', 
+        'description': 'Stratégie agressive qui vise les tuiles de haute valeur'
+    },
+    'balanced': {
+        'class': BalancedStrategy,
+        'name': 'Balanced',
+        'description': 'Stratégie équilibrée qui adapte ses choix selon le contexte'
+    },
+    'targeted': {
+        'class': TargetedStrategy,
+        'name': 'Targeted',
+        'description': 'Stratégie ciblée qui cherche à voler des tuiles spécifiques'
+    },
+    'random': {
+        'class': RandomStrategy,
+        'name': 'Random',
+        'description': 'Stratégie aléatoire pour tester la variabilité'
+    },
+    'optimal': {
+        'class': OptimalStrategy,
+        'name': 'Optimal',
+        'description': 'Stratégie mathématiquement optimale basée sur les probabilités'
+    }
+}
+
+def create_strategy(strategy_type: str):
+    """Crée une instance de stratégie basée sur le type fourni"""
+    if strategy_type not in AVAILABLE_STRATEGIES:
+        strategy_type = "conservative"  # Stratégie par défaut
+    
+    strategy_class = AVAILABLE_STRATEGIES[strategy_type]['class']
+    
+    # Gestion des stratégies avec paramètres spéciaux
+    if strategy_type == "targeted":
+        # TargetedStrategy peut prendre des paramètres optionnels
+        return strategy_class()
+    elif strategy_type == "random":
+        # RandomStrategy peut prendre une probabilité
+        return strategy_class()
+    else:
+        # Autres stratégies sans paramètres
+        return strategy_class()
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "pikomino-secret-key-for-sessions"
@@ -60,6 +118,18 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/strategies")
+def get_available_strategies():
+    """Récupère la liste des stratégies disponibles"""
+    strategies_list = {}
+    for key, strategy in AVAILABLE_STRATEGIES.items():
+        strategies_list[key] = {
+            'name': strategy['name'],
+            'description': strategy['description']
+        }
+    return jsonify(strategies_list)
+
+
 @app.route("/game/<game_id>")
 def game_view(game_id):
     """Vue de jeu"""
@@ -98,21 +168,13 @@ def create_game():
                 strategy_type = (
                     strategies[i - 1] if i - 1 < len(strategies) else "conservative"
                 )
-                strategy = (
-                    ConservativeStrategy()
-                    if strategy_type == "conservative"
-                    else AggressiveStrategy()
-                )
+                strategy = create_strategy(strategy_type)
             players.append(Player(name, strategy))
     else:  # mode simulation
         # Tous les joueurs sont des IA avec stratégies spécifiées
         for i, name in enumerate(player_names):
             strategy_type = strategies[i] if i < len(strategies) else "conservative"
-            strategy = (
-                ConservativeStrategy()
-                if strategy_type == "conservative"
-                else AggressiveStrategy()
-            )
+            strategy = create_strategy(strategy_type)
             players.append(Player(name, strategy))
 
     # Créer la partie

@@ -9,11 +9,10 @@ import matplotlib.pyplot as plt
 import statistics
 from collections import defaultdict
 import colorsys
+import pikomino
 from pikomino import (
     Player,
     PikominoGame,
-    ConservativeStrategy,
-    AggressiveStrategy,
     simulate_game,
 )
 
@@ -42,9 +41,9 @@ def run_console_demo():
 
     # Créer des joueurs avec différentes stratégies
     players = [
-        Player("Alice", ConservativeStrategy()),
-        Player("Bob", AggressiveStrategy()),
-        Player("Charlie", ConservativeStrategy()),
+        Player("Alice", pikomino.ConservativeStrategy()),
+        Player("Bob", pikomino.AggressiveStrategy()),
+        Player("Charlie", pikomino.ConservativeStrategy()),
     ]
 
     # Lancer une partie
@@ -88,12 +87,14 @@ def run_simulation(num_games=10):
     print(f"🎯 SIMULATION DE {num_games} PARTIES")
     print("=" * 50)
 
-    # Créer les joueurs et leurs stratégies
-    player_names = ["Conservative", "Aggressive", "Conservative2"]
+    
+    player_names = ["Conservative", "Aggressive", "Balanced", "Random", "Optimal"]
     game_strategies = [
-        ConservativeStrategy(),
-        AggressiveStrategy(),
-        ConservativeStrategy(),
+        pikomino.ConservativeStrategy(),
+        pikomino.AggressiveStrategy(),
+        pikomino.BalancedStrategy(),
+        pikomino.RandomStrategy(),
+        pikomino.OptimalStrategy(),
     ]
 
     # Générer les couleurs dynamiquement

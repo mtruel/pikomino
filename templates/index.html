@@ -112,11 +112,24 @@
 // Noms de base pour les IA
 const aiBaseNames = ['Bob', 'Alice', 'Charlie', 'Diana', 'Eve', 'Frank'];
 
+// Stratégies disponibles (chargées depuis l'API)
+let availableStrategies = {};
+
 const aiPlayerTemplate = (index) => {
     const baseName = aiBaseNames[index - 1] || `IA${index}`;
-    const defaultStrategy = index % 2 === 1 ? 'conservative' : 'aggressive';
-    const strategyName = defaultStrategy === 'conservative' ? 'Conservative' : 'Aggressive';
+    const strategyKeys = Object.keys(availableStrategies);
+    const defaultStrategy = strategyKeys[index % strategyKeys.length] || 'conservative';
+    const strategyName = availableStrategies[defaultStrategy]?.name || 'Conservative';
     const defaultName = `${baseName} ${strategyName}`;
+    
+    // Générer les options du select dynamiquement
+    const strategyOptions = Object.keys(availableStrategies)
+        .map(key => {
+            const strategy = availableStrategies[key];
+            const selected = key === defaultStrategy ? 'selected' : '';
+            return `<option value="${key}" ${selected} title="${strategy.description}">${strategy.name}</option>`;
+        })
+        .join('');
     
     return `
     <div class="row ai-player mb-2" data-index="${index}">
@@ -126,8 +139,7 @@ const aiPlayerTemplate = (index) => {
         </div>
         <div class="col-md-5">
             <select class="form-select" required name="aiStrategy${index}" onchange="updateAIName(${index})">
-                <option value="conservative" ${defaultStrategy === 'conservative' ? 'selected' : ''}>Conservative</option>
-                <option value="aggressive" ${defaultStrategy === 'aggressive' ? 'selected' : ''}>Aggressive</option>
+                ${strategyOptions}
             </select>
         </div>
         <div class="col-md-2">
@@ -152,11 +164,14 @@ function updateAIName(index) {
     
     const currentName = nameInput.value;
     const newStrategy = strategySelect.value;
-    const strategyName = newStrategy === 'conservative' ? 'Conservative' : 'Aggressive';
+    const strategyName = availableStrategies[newStrategy]?.name || 'Conservative';
     
     // Extraire le nom de base (enlever l'ancienne stratégie)
     const baseName = aiBaseNames[index - 1] || `IA${index}`;
-    const baseNameRegex = new RegExp(`^${baseName}( (Conservative|Aggressive))?$`);
+    
+    // Créer un regex qui capture toutes les stratégies possibles
+    const strategyNames = Object.values(availableStrategies).map(s => s.name).join('|');
+    const baseNameRegex = new RegExp(`^${baseName}( (${strategyNames}))?$`);
     
     if (baseNameRegex.test(currentName)) {
         // Si le nom suit le pattern attendu, le mettre à jour
@@ -196,7 +211,7 @@ function removeAIPlayer(element) {
         // Mettre à jour le nom avec le nouveau nom de base
         const baseName = aiBaseNames[newIndex - 1] || `IA${newIndex}`;
         const currentStrategy = strategySelect.value;
-        const strategyName = currentStrategy === 'conservative' ? 'Conservative' : 'Aggressive';
+        const strategyName = availableStrategies[currentStrategy]?.name || 'Conservative';
         nameInput.value = `${baseName} ${strategyName}`;
     });
 }
@@ -206,8 +221,24 @@ function updateAIControls() {
     addButton.disabled = aiCount >= 4;
 }
 
+// Charger les stratégies disponibles depuis l'API
+async function loadAvailableStrategies() {
+    try {
+        const response = await fetch('/api/strategies');
+        availableStrategies = await response.json();
+    } catch (error) {
+        console.error('Erreur lors du chargement des stratégies:', error);
+        // Stratégies par défaut en cas d'erreur
+        availableStrategies = {
+            'conservative': { name: 'Conservative', description: 'Stratégie prudente' },
+            'aggressive': { name: 'Aggressive', description: 'Stratégie agressive' }
+        };
+    }
+}
+
 // Initialiser avec 2 adversaires par défaut
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
+    await loadAvailableStrategies();
     addAIPlayer();
     addAIPlayer();
     

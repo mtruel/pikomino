@@ -7,10 +7,13 @@ from pikomino import (
     TurnResult,
     TurnState,
     Player,
+    PikominoGame,
+)
+from strategies import (
+    GameStrategy,
     ConservativeStrategy,
     AggressiveStrategy,
-    PikominoGame,
-    GameStrategy,
+    RandomStrategy,
 )
 
 
@@ -432,6 +435,16 @@ class MockStrategy(GameStrategy):
 
     def should_continue_turn(self, turn_state, player):
         return self.continue_choice
+
+    def choose_target_tile(self, score, has_worm, center_tiles, stealable_tiles, current_player):
+        # Comportement par défaut pour les tests
+        if not has_worm:
+            return None
+        if stealable_tiles:
+            return stealable_tiles[0][0]  # Première tuile volable
+        if center_tiles:
+            return center_tiles[0]  # Première tuile du centre
+        return None
 
 
 class TestConservativeStrategy:
@@ -1263,6 +1276,14 @@ class TestIntegrationWithNewFeatures:
             def should_continue_turn(self, turn_state, player):
                 return False  # S'arrêter après le premier choix
 
+            def choose_target_tile(self, score, has_worm, center_tiles, stealable_tiles, current_player):
+                # Priorité au vol pour ce test
+                if stealable_tiles:
+                    return stealable_tiles[0][0]
+                if center_tiles:
+                    return center_tiles[0]
+                return None
+
         players[0].strategy = TheftStrategy()
         game = PikominoGame(players)
 
@@ -1359,6 +1380,135 @@ class TestWebInterface:
             assert "tiles_center" in data
             assert "mode" in data
             assert data["mode"] == "interactive"
+
+
+class TestRandomStrategy:
+    """Tests pour la stratégie aléatoire"""
+
+    def test_chooses_available_values_only(self):
+        """Test que la stratégie aléatoire ne choisit que parmi les valeurs disponibles"""
+        strategy = RandomStrategy()
+        player = Player("Test", strategy)
+
+        turn_state = TurnState()
+        turn_state.current_roll = [DiceValue.ONE, DiceValue.ONE, DiceValue.THREE]
+        turn_state.used_values = set()
+
+        # Tester plusieurs fois pour s'assurer que seules les bonnes valeurs sont choisies
+        available_values = {DiceValue.ONE, DiceValue.THREE}
+        
+        for _ in range(10):
+            choice = strategy.choose_dice_value(turn_state, player)
+            assert choice in available_values
+
+    def test_respects_used_values(self):
+        """Test que la stratégie respecte les valeurs déjà utilisées"""
+        strategy = RandomStrategy()
+        player = Player("Test", strategy)
+
+        turn_state = TurnState()
+        turn_state.current_roll = [DiceValue.ONE, DiceValue.TWO, DiceValue.THREE]
+        turn_state.used_values = {DiceValue.ONE}  # ONE déjà utilisé
+
+        # Tester plusieurs fois
+        for _ in range(10):
+            choice = strategy.choose_dice_value(turn_state, player)
+            assert choice != DiceValue.ONE
+            assert choice in [DiceValue.TWO, DiceValue.THREE]
+
+    def test_continue_probability_affects_decision(self):
+        """Test que la probabilité de continuer affecte la décision"""
+        # Stratégie qui ne continue jamais (probabilité 0)
+        never_continue = RandomStrategy(continue_probability=0.0)
+        player = Player("Test", never_continue)
+
+        turn_state = TurnState()
+        turn_state.remaining_dice = 4
+        turn_state.reserved_dice = {DiceValue.WORM: 1, DiceValue.FIVE: 4}  # 25 points
+
+        # Devrait toujours s'arrêter
+        for _ in range(10):
+            assert not never_continue.should_continue_turn(turn_state, player)
+
+        # Stratégie qui continue toujours (probabilité 1)  
+        always_continue = RandomStrategy(continue_probability=1.0)
+        
+        # Devrait toujours continuer (sauf si impossible)
+        for _ in range(10):
+            assert always_continue.should_continue_turn(turn_state, player)
+
+    def test_must_continue_when_cannot_take_tile(self):
+        """Test qu'elle doit continuer quand elle ne peut pas prendre de tuile"""
+        strategy = RandomStrategy(continue_probability=0.0)  # Même avec 0% de chance
+        player = Player("Test", strategy)
+
+        turn_state = TurnState()
+        turn_state.remaining_dice = 4
+        turn_state.reserved_dice = {DiceValue.ONE: 2}  # Seulement 2 points, pas de ver
+
+        # Doit continuer même avec probabilité 0 car ne peut pas prendre de tuile
+        assert strategy.should_continue_turn(turn_state, player)
+
+    def test_cannot_continue_without_dice(self):
+        """Test qu'elle ne peut pas continuer sans dés restants"""
+        strategy = RandomStrategy(continue_probability=1.0)  # Même avec 100% de chance
+        player = Player("Test", strategy)
+
+        turn_state = TurnState()
+        turn_state.remaining_dice = 0
+        turn_state.reserved_dice = {DiceValue.WORM: 1, DiceValue.FIVE: 4}  # 25 points
+
+        # Ne peut pas continuer sans dés
+        assert not strategy.should_continue_turn(turn_state, player)
+
+    def test_chooses_from_all_available_tiles(self):
+        """Test qu'elle choisit parmi toutes les tuiles disponibles"""
+        from pikomino import Tile
+        
+        strategy = RandomStrategy()
+        player = Player("Test", strategy)
+
+        # Créer quelques tuiles test
+        center_tiles = [Tile(25, 2), Tile(30, 3)]
+        stealable_tiles = [(Tile(28, 2), player)]
+
+        # Collecter les choix sur plusieurs essais
+        choices = set()
+        for _ in range(50):  # Plus d'essais pour avoir de la variété
+            choice = strategy.choose_target_tile(
+                score=30, 
+                has_worm=True, 
+                center_tiles=center_tiles, 
+                stealable_tiles=stealable_tiles, 
+                current_player=player
+            )
+            if choice:
+                choices.add(choice.value)
+
+        # Devrait avoir choisi parmi toutes les tuiles disponibles
+        expected_values = {25, 30, 28}
+        assert len(choices) > 1  # Au moins 2 valeurs différentes choisies
+        assert choices.issubset(expected_values)
+
+    def test_returns_none_without_worm(self):
+        """Test qu'elle retourne None sans ver"""
+        from pikomino import Tile
+        
+        strategy = RandomStrategy()
+        player = Player("Test", strategy)
+
+        center_tiles = [Tile(25, 2)]
+        stealable_tiles = []
+
+        choice = strategy.choose_target_tile(
+            score=30, 
+            has_worm=False,  # Pas de ver
+            center_tiles=center_tiles, 
+            stealable_tiles=stealable_tiles, 
+            current_player=player
+        )
+
+        assert choice is None
 
 
 if __name__ == "__main__":

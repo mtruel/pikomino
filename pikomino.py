@@ -100,20 +100,8 @@ class TurnState:
         return value in self.current_roll and value not in self.used_values
 
 
-class GameStrategy(ABC):
-    """Interface pour les stratégies de jeu"""
-
-    @abstractmethod
-    def choose_dice_value(
-        self, turn_state: TurnState, player: "Player"
-    ) -> Optional[DiceValue]:
-        """Choisit quelle valeur de dé réserver"""
-        pass
-
-    @abstractmethod
-    def should_continue_turn(self, turn_state: TurnState, player: "Player") -> bool:
-        """Décide si continuer le tour"""
-        pass
+# Import des stratégies depuis le module dédié
+from strategies import GameStrategy
 
 
 class Player:
@@ -170,67 +158,7 @@ class Player:
         return turn_state.get_total_score() < 25
 
 
-class ConservativeStrategy(GameStrategy):
-    """Stratégie conservatrice : s'arrête dès qu'on peut prendre une tuile"""
 
-    def choose_dice_value(
-        self, turn_state: TurnState, player: Player
-    ) -> Optional[DiceValue]:
-        available_values = [
-            v for v in turn_state.current_roll if turn_state.can_reserve_value(v)
-        ]
-
-        if not available_values:
-            return None
-
-        # Privilégier les vers si on n'en a pas encore
-        if DiceValue.WORM in available_values and not turn_state.has_worm():
-            return DiceValue.WORM
-
-        # Sinon, prendre la valeur la plus fréquente
-        value_counts = {}
-        for value in available_values:
-            value_counts[value] = turn_state.current_roll.count(value)
-
-        return max(value_counts.keys(), key=lambda v: value_counts[v])
-
-    def should_continue_turn(self, turn_state: TurnState, player: Player) -> bool:
-        # S'arrêter dès qu'on peut prendre une tuile (score >= 21 et a un ver)
-        return not (turn_state.get_total_score() >= 21 and turn_state.has_worm())
-
-
-class AggressiveStrategy(GameStrategy):
-    """Stratégie agressive : vise les tuiles de haute valeur"""
-
-    def choose_dice_value(
-        self, turn_state: TurnState, player: Player
-    ) -> Optional[DiceValue]:
-        available_values = [
-            v for v in turn_state.current_roll if turn_state.can_reserve_value(v)
-        ]
-
-        if not available_values:
-            return None
-
-        # Privilégier les hautes valeurs et les vers
-        priority_order = [
-            DiceValue.WORM,
-            DiceValue.FIVE,
-            DiceValue.FOUR,
-            DiceValue.THREE,
-            DiceValue.TWO,
-            DiceValue.ONE,
-        ]
-
-        for preferred_value in priority_order:
-            if preferred_value in available_values:
-                return preferred_value
-
-        return available_values[0]
-
-    def should_continue_turn(self, turn_state: TurnState, player: Player) -> bool:
-        # Continue jusqu'à avoir au moins 30 points si possible
-        return turn_state.get_total_score() < 30 and turn_state.remaining_dice > 0
 
 
 class PikominoGame:
@@ -273,18 +201,33 @@ class PikominoGame:
         if not has_worm:
             return None
 
-        # D'abord vérifier si on peut voler chez un autre joueur (score exact)
+        current_player = self.get_current_player()
+        
+        # Rassembler toutes les tuiles volables (score exact)
+        stealable_tiles = []
         for player in self.players:
-            if player != self.get_current_player():
+            if player != current_player:
                 top_tile = player.get_top_tile()
                 if top_tile and top_tile.value == score:
-                    return top_tile
+                    stealable_tiles.append((top_tile, player))
 
-        # Sinon chercher dans le centre (score >= valeur tuile)
-        available_tiles = [t for t in self.tiles_center if t.value <= score]
-        if available_tiles:
+        # Rassembler les tuiles du centre accessibles (score >= valeur tuile)
+        center_tiles = [t for t in self.tiles_center if t.value <= score]
+
+        # Si le joueur a une stratégie, lui laisser choisir
+        if current_player.strategy:
+            return current_player.strategy.choose_target_tile(
+                score, has_worm, center_tiles, stealable_tiles, current_player
+            )
+
+        # Comportement par défaut : priorité au vol, sinon plus haute tuile du centre
+        if stealable_tiles:
+            # Choisir la tuile volable avec le plus de vers
+            return max(stealable_tiles, key=lambda x: x[0].worms)[0]
+
+        if center_tiles:
             # Prendre la tuile de plus haute valeur possible
-            return max(available_tiles, key=lambda t: t.value)
+            return max(center_tiles, key=lambda t: t.value)
 
         return None
 
@@ -451,6 +394,7 @@ def simulate_game(
 ) -> Dict:
     """Simule une partie avec les joueurs et stratégies donnés"""
     if strategies is None:
+        from strategies import ConservativeStrategy
         strategies = [ConservativeStrategy() for _ in player_names]
 
     players = [
