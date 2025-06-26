@@ -11,10 +11,14 @@ Ce module contient toutes les stratégies de jeu disponibles:
 - OptimalStrategy: Stratégie mathématiquement optimale
 """
 
+from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Optional, List, Tuple, Dict, Any
+from typing import Optional, List, Tuple, Dict, Any, TYPE_CHECKING
 from dataclasses import dataclass, field
 import random
+
+if TYPE_CHECKING:
+    from pikomino import DiceValue, Tile, Player, TurnState, TurnResult
 
 
 @dataclass
@@ -22,9 +26,9 @@ class GameStateSnapshot:
     """Instantané de l'état du jeu à un moment donné"""
     turn_number: int
     current_player_name: str
-    tiles_center: List["Tile"]  # Tuiles disponibles dans le centre
-    players_tiles: Dict[str, List["Tile"]]  # Tuiles de chaque joueur
-    removed_tiles: List["Tile"]  # Tuiles retirées du jeu
+    tiles_center: List[Tile]  # Tuiles disponibles dans le centre
+    players_tiles: Dict[str, List[Tile]]  # Tuiles de chaque joueur
+    removed_tiles: List[Tile]  # Tuiles retirées du jeu
     player_scores: Dict[str, int]  # Score (vers) de chaque joueur
     turn_details: Dict[str, Any]  # Détails du tour en cours
 
@@ -33,12 +37,12 @@ class TurnHistory:
     """Historique d'un tour spécifique"""
     turn_number: int
     player_name: str
-    dice_rolls: List[List["DiceValue"]]  # Tous les lancers de dés du tour
-    reserved_dice: Dict["DiceValue", int]  # Dés finalement réservés
+    dice_rolls: List[List[DiceValue]]  # Tous les lancers de dés du tour
+    reserved_dice: Dict[DiceValue, int]  # Dés finalement réservés
     final_score: int
     final_has_worm: bool
-    tile_taken: Optional["Tile"]  # Tuile prise (si succès)
-    result: "TurnResult"  # Résultat du tour
+    tile_taken: Optional[Tile]  # Tuile prise (si succès)
+    result: TurnResult  # Résultat du tour
     game_state_before: GameStateSnapshot  # État du jeu avant le tour
     game_state_after: GameStateSnapshot   # État du jeu après le tour
 
@@ -48,7 +52,7 @@ class GameHistory:
     turns: List[TurnHistory] = field(default_factory=list)
     game_states: List[GameStateSnapshot] = field(default_factory=list)
     
-    def add_turn(self, turn: TurnHistory):
+    def add_turn(self, turn: TurnHistory) -> None:
         """Ajoute un tour à l'historique"""
         self.turns.append(turn)
         self.game_states.append(turn.game_state_after)
@@ -85,17 +89,17 @@ class GameHistory:
 class GameContext:
     """Contexte complet du jeu disponible pour les stratégies"""
     # État du tour actuel
-    turn_state: "TurnState"
-    current_player: "Player"
+    turn_state: TurnState
+    current_player: Player
     
     # État complet du jeu
-    all_players: List["Player"]
-    tiles_center: List["Tile"]  # Toutes les tuiles disponibles dans le centre
-    removed_tiles: List["Tile"]  # Tuiles retirées du jeu (échecs)
+    all_players: List[Player]
+    tiles_center: List[Tile]  # Toutes les tuiles disponibles dans le centre
+    removed_tiles: List[Tile]  # Tuiles retirées du jeu (échecs)
     
     # Informations calculées pour faciliter les décisions
-    stealable_tiles: List[Tuple["Tile", "Player"]]  # Tuiles volables [(tuile, propriétaire)]
-    available_center_tiles: List["Tile"]  # Tuiles du centre accessibles avec le score actuel
+    stealable_tiles: List[Tuple[Tile, Player]]  # Tuiles volables [(tuile, propriétaire)]
+    available_center_tiles: List[Tile]  # Tuiles du centre accessibles avec le score actuel
     
     # Historique et statistiques
     game_history: GameHistory
@@ -109,7 +113,7 @@ class GameContext:
             if player != self.current_player
         }
     
-    def get_leading_player(self) -> "Player":
+    def get_leading_player(self) -> Player:
         """Retourne le joueur en tête"""
         return max(self.all_players, key=lambda p: p.get_score())
     
@@ -117,7 +121,7 @@ class GameContext:
         """Vérifie si le joueur actuel est en tête"""
         return self.get_leading_player() == self.current_player
     
-    def get_tiles_by_value_range(self, min_value: int, max_value: int) -> List["Tile"]:
+    def get_tiles_by_value_range(self, min_value: int, max_value: int) -> List[Tile]:
         """Retourne les tuiles du centre dans une plage de valeurs"""
         return [
             tile for tile in self.tiles_center 
@@ -129,7 +133,7 @@ class GameStrategy(ABC):
     """Interface pour les stratégies de jeu avec accès complet aux informations"""
 
     @abstractmethod
-    def choose_dice_value(self, context: GameContext) -> Optional["DiceValue"]:
+    def choose_dice_value(self, context: GameContext) -> Optional[DiceValue]:
         """Choisit quelle valeur de dé réserver
         
         Args:
@@ -154,7 +158,7 @@ class GameStrategy(ABC):
         pass
 
     @abstractmethod
-    def choose_target_tile(self, context: GameContext) -> Optional["Tile"]:
+    def choose_target_tile(self, context: GameContext) -> Optional[Tile]:
         """Choisit quelle tuile cibler parmi les options disponibles
         
         Args:
@@ -170,7 +174,7 @@ class GameStrategy(ABC):
 class ConservativeStrategy(GameStrategy):
     """Stratégie conservatrice : s'arrête dès qu'on peut prendre une tuile"""
 
-    def choose_dice_value(self, context: GameContext) -> Optional["DiceValue"]:
+    def choose_dice_value(self, context: GameContext) -> Optional[DiceValue]:
         from pikomino import DiceValue
         
         turn_state = context.turn_state
@@ -197,7 +201,7 @@ class ConservativeStrategy(GameStrategy):
         # S'arrêter dès qu'on peut prendre une tuile (score >= 21 et a un ver)
         return not (turn_state.get_total_score() >= 21 and turn_state.has_worm())
 
-    def choose_target_tile(self, context: GameContext) -> Optional["Tile"]:
+    def choose_target_tile(self, context: GameContext) -> Optional[Tile]:
         """Stratégie conservatrice : évite les conflits, préfère le centre"""
         turn_state = context.turn_state
         if not turn_state.has_worm():
@@ -219,7 +223,7 @@ class ConservativeStrategy(GameStrategy):
 class AggressiveStrategy(GameStrategy):
     """Stratégie agressive : vise les tuiles de haute valeur"""
 
-    def choose_dice_value(self, context: GameContext) -> Optional["DiceValue"]:
+    def choose_dice_value(self, context: GameContext) -> Optional[DiceValue]:
         from pikomino import DiceValue
         
         turn_state = context.turn_state
@@ -251,7 +255,7 @@ class AggressiveStrategy(GameStrategy):
         # Continue jusqu'à avoir au moins 30 points si possible
         return turn_state.get_total_score() < 30 and turn_state.remaining_dice > 0
 
-    def choose_target_tile(self, context: GameContext) -> Optional["Tile"]:
+    def choose_target_tile(self, context: GameContext) -> Optional[Tile]:
         """Stratégie agressive : maximise les vers et l'impact"""
         turn_state = context.turn_state
         if not turn_state.has_worm():
@@ -273,7 +277,7 @@ class AggressiveStrategy(GameStrategy):
 class BalancedStrategy(GameStrategy):
     """Stratégie équilibrée : adapte ses choix selon le contexte"""
 
-    def choose_dice_value(self, context: GameContext) -> Optional["DiceValue"]:
+    def choose_dice_value(self, context: GameContext) -> Optional[DiceValue]:
         from pikomino import DiceValue, Dice
         
         turn_state = context.turn_state
@@ -321,7 +325,7 @@ class BalancedStrategy(GameStrategy):
         # Sinon, s'arrêter si on peut prendre une tuile
         return not (score >= 21 and turn_state.has_worm())
 
-    def choose_target_tile(self, context: GameContext) -> Optional["Tile"]:
+    def choose_target_tile(self, context: GameContext) -> Optional[Tile]:
         """Stratégie équilibrée : optimise selon la situation"""
         turn_state = context.turn_state
         if not turn_state.has_worm():
@@ -378,7 +382,7 @@ class TargetedStrategy(GameStrategy):
         self.target_player_name = target_player_name
         self.min_target_value = min_target_value
 
-    def choose_dice_value(self, context: GameContext) -> Optional["DiceValue"]:
+    def choose_dice_value(self, context: GameContext) -> Optional[DiceValue]:
         from pikomino import DiceValue
         
         turn_state = context.turn_state
@@ -416,7 +420,7 @@ class TargetedStrategy(GameStrategy):
         # S'arrêter si on peut prendre une tuile
         return not (score >= 21 and turn_state.has_worm())
 
-    def choose_target_tile(self, context: GameContext) -> Optional["Tile"]:
+    def choose_target_tile(self, context: GameContext) -> Optional[Tile]:
         """Stratégie ciblée : priorité aux objectifs définis"""
         turn_state = context.turn_state
         if not turn_state.has_worm():
@@ -465,7 +469,7 @@ class RandomStrategy(GameStrategy):
         """
         self.continue_probability = continue_probability
 
-    def choose_dice_value(self, context: GameContext) -> Optional["DiceValue"]:
+    def choose_dice_value(self, context: GameContext) -> Optional[DiceValue]:
         turn_state = context.turn_state
         available_values = [
             v for v in turn_state.current_roll if turn_state.can_reserve_value(v)
@@ -490,7 +494,7 @@ class RandomStrategy(GameStrategy):
         # Choix aléatoire basé sur la probabilité configurée
         return random.random() < self.continue_probability
 
-    def choose_target_tile(self, context: GameContext) -> Optional["Tile"]:
+    def choose_target_tile(self, context: GameContext) -> Optional[Tile]:
         """Choix aléatoire de tuile parmi toutes les options disponibles"""
         turn_state = context.turn_state
         if not turn_state.has_worm():
@@ -527,7 +531,7 @@ class OptimalStrategy(GameStrategy):
     6. Adaptation selon l'historique et les adversaires
     """
     
-    def choose_dice_value(self, context: GameContext) -> Optional["DiceValue"]:
+    def choose_dice_value(self, context: GameContext) -> Optional[DiceValue]:
         from pikomino import DiceValue, Dice
         
         turn_state = context.turn_state
@@ -606,7 +610,7 @@ class OptimalStrategy(GameStrategy):
             
         return score < target
     
-    def choose_target_tile(self, context: GameContext) -> Optional["Tile"]:
+    def choose_target_tile(self, context: GameContext) -> Optional[Tile]:
         """Choix optimal de tuile basé sur l'analyse d'impact et le contexte"""
         turn_state = context.turn_state
         if not turn_state.has_worm():
